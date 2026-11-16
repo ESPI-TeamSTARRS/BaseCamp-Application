@@ -8,6 +8,7 @@ import hashlib
 import hmac
 
 import pytest
+
 from app.stripe_webhook.domain.errors.invalid_stripe_signature_error import (
     InvalidStripeSignatureError,
 )
