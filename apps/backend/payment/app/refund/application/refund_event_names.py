@@ -5,4 +5,5 @@ Centralisés ici pour rester faciles à renommer : un nom publié ne change plus
 
 REFUND_SUCCEEDED = "refund.succeeded"
 REFUND_REJECTED = "refund.rejected"
+REFUND_STRIPE_FAILED = "refund.stripe_failed"
 LEDGER_ENTRIES_WRITTEN = "ledger.entries_written"

@@ -39,3 +39,4 @@ class RefundModel(Base):
     idempotency_key: Mapped[str] = mapped_column(String(255))
     request_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    stripe_refund_id: Mapped[str | None] = mapped_column(String(255), index=True, default=None)

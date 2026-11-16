@@ -1,0 +1,90 @@
+import json
+import socket
+import urllib.error
+import urllib.request
+from typing import Any
+from urllib.parse import urlencode, urlsplit
+
+from pydantic import SecretStr
+
+from app.core.stripe.stripe_api_error import StripeApiError
+
+STRIPE_API_VERSION = "2025-09-30.clover"
+MAX_RESPONSE_BYTES = 65_536
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Un 3xx n'est jamais suivi : la clé secrète ne doit partir que vers l'adresse configurée."""
+
+    def redirect_request(self, *_: Any, **__: Any) -> None:
+        return None
+
+
+class StripeHttpClient:
+    """Appelle l'API REST de Stripe (mode test) : POST formulaire, réponse JSON, rien d'autre.
+
+    Bibliothèque standard seulement, sans proxy ni redirection, avec un délai borné. L'adresse de base
+    est `https` (ou boucle locale pour les essais). Les erreurs sont réduites à un code fixe : ni corps
+    de réponse, ni clé dans les messages.
+    """
+
+    def __init__(self, base_url: str, secret_key: SecretStr, timeout_seconds: float) -> None:
+        parts = urlsplit(base_url)
+        secure = parts.scheme == "https" or (
+            parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
+        )
+        if not secure or not parts.hostname or parts.username or parts.password:
+            raise ValueError("stripe api base url must be https (or loopback http)")
+        self._base_url = base_url.rstrip("/")
+        self._secret_key = secret_key
+        self._timeout = timeout_seconds
+        # Sans ProxyHandler : l'environnement (HTTP_PROXY...) n'est jamais consulté.
+        self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
+
+    def post_form(self, path: str, form: dict[str, str], idempotency_key: str) -> dict[str, Any]:
+        request = urllib.request.Request(  # noqa: S310  # adresse https validée au constructeur
+            self._base_url + path,
+            data=urlencode(form).encode(),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self._secret_key.get_secret_value()}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Idempotency-Key": idempotency_key,
+                "Stripe-Version": STRIPE_API_VERSION,
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with self._opener.open(request, timeout=self._timeout) as response:
+                body = response.read(MAX_RESPONSE_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            raise StripeApiError(self._reason(error.code)) from None
+        except TimeoutError:
+            raise StripeApiError("stripe_timeout") from None
+        except urllib.error.URLError as error:
+            timed_out = isinstance(error.reason, TimeoutError | socket.timeout)
+            raise StripeApiError("stripe_timeout" if timed_out else "stripe_unreachable") from None
+        except OSError:
+            raise StripeApiError("stripe_unreachable") from None
+        return self._parse(body)
+
+    @staticmethod
+    def _reason(status: int) -> str:
+        if status == 429:
+            return "stripe_rate_limited"
+        if status >= 500:
+            return "stripe_server_error"
+        return "stripe_rejected"
+
+    @staticmethod
+    def _parse(body: bytes) -> dict[str, Any]:
+        if len(body) > MAX_RESPONSE_BYTES:
+            raise StripeApiError("stripe_invalid_response")
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            raise StripeApiError("stripe_invalid_response") from None
+        if not isinstance(payload, dict):
+            raise StripeApiError("stripe_invalid_response")
+        return payload

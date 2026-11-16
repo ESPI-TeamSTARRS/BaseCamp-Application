@@ -4,6 +4,9 @@ from fastapi.responses import JSONResponse
 from app.refund.domain.exceptions.intent_not_refundable_error import IntentNotRefundableError
 from app.refund.domain.exceptions.refund_exceeds_captured_error import RefundExceedsCapturedError
 from app.refund.domain.exceptions.refund_key_reused_error import RefundKeyReusedError
+from app.refund.domain.exceptions.stripe_refund_unavailable_error import (
+    StripeRefundUnavailableError,
+)
 
 
 async def _not_refundable(_: Request, __: Exception) -> JSONResponse:
@@ -27,7 +30,17 @@ async def _key_reused(_: Request, __: Exception) -> JSONResponse:
     )
 
 
+async def _stripe_unavailable(_: Request, __: Exception) -> JSONResponse:
+    # Jamais le motif ni le corps de Stripe : le détail est dans le journal (refund.stripe_failed).
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Payment provider unavailable"},
+        headers={"Retry-After": "5"},
+    )
+
+
 def register_refund_error_handlers(application: FastAPI) -> None:
     application.add_exception_handler(IntentNotRefundableError, _not_refundable)
     application.add_exception_handler(RefundExceedsCapturedError, _exceeds_captured)
     application.add_exception_handler(RefundKeyReusedError, _key_reused)
+    application.add_exception_handler(StripeRefundUnavailableError, _stripe_unavailable)

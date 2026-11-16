@@ -13,7 +13,9 @@ from app.ledger.domain.interfaces.ledger_repository import LedgerRepository
 from app.refund.domain.entities.refund import Refund
 from app.refund.domain.exceptions.refund_key_reused_error import RefundKeyReusedError
 from app.refund.domain.interfaces.refund_session import RefundSession
+from app.refund.domain.value_objects.stripe_payment_reference import StripePaymentReference
 from app.refund.infrastructure.models.refund_model import RefundModel
+from app.stripe_checkout.infrastructure.models.checkout_session_model import CheckoutSessionModel
 from app.webhook.domain.entities.outbox_event import OutboxEvent
 from app.webhook.domain.interfaces.outbox_repository import OutboxRepository
 
@@ -52,7 +54,12 @@ class SqlAlchemyRefundSession(RefundSession):
             key=row.idempotency_key,
             request_hash=row.request_hash,
             created_at=PaymentIntentMapper.to_utc(row.created_at),
+            stripe_refund_id=row.stripe_refund_id,
         )
+
+    def get_stripe_payment(self, intent_id: UUID) -> StripePaymentReference | None:
+        row = self._session.get(CheckoutSessionModel, intent_id)
+        return StripePaymentReference(row.stripe_payment_intent_id) if row else None
 
     def save(
         self,
@@ -75,6 +82,7 @@ class SqlAlchemyRefundSession(RefundSession):
                 idempotency_key=refund.key,
                 request_hash=refund.request_hash,
                 created_at=refund.created_at,
+                stripe_refund_id=refund.stripe_refund_id,
             )
         )
         self._flush_refund()

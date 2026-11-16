@@ -16,3 +16,5 @@ class CheckoutSessionModel(Base):
     session_id: Mapped[str] = mapped_column(String(255), unique=True)
     url: Mapped[str] = mapped_column(String(2048))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Posé à la confirmation du paiement (WORK-89/90) : le paiement Stripe à rembourser.
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String(255), default=None)
