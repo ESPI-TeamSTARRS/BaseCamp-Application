@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Self
 
 from app.order.domain.enums.order_status import OrderStatus
+from app.pay.domain.entities.checkout_session_ref import CheckoutSessionRef
 from app.pay.domain.entities.payment_intent_ref import PaymentIntentRef
 from app.pay.domain.exceptions.payment_unavailable_error import PaymentUnavailableError
 from app.pay.domain.interfaces.payment_gateway import PaymentGateway
@@ -103,7 +104,9 @@ class FakePaymentUnitOfWork(PaymentUnitOfWork):
 class RecordingGateway(PaymentGateway):
     """Passerelle enregistreuse : le résultat de la confirmation dépend de la méthode de test."""
 
-    def __init__(self, unavailable: bool = False) -> None:
+    def __init__(self, unavailable: bool = False, checkout_error: Exception | None = None) -> None:
+        self.checkouts: list[str] = []
+        self.checkout_error = checkout_error
         self.created: list[tuple[str, int, str, str]] = []
         self.confirmed: list[tuple[str, str, str]] = []
         self._unavailable = unavailable
@@ -117,6 +120,12 @@ class RecordingGateway(PaymentGateway):
         return PaymentIntentRef(
             f"pi-{len(self.created)}", "requires_confirmation", amount_cents, currency
         )
+
+    def create_checkout_session(self, intent_id: str) -> CheckoutSessionRef:
+        if self.checkout_error:
+            raise self.checkout_error
+        self.checkouts.append(intent_id)
+        return CheckoutSessionRef(f"https://checkout.stripe.com/c/pay/{intent_id}")
 
     def get_intent(self, intent_id: str) -> PaymentIntentRef:
         raise NotImplementedError

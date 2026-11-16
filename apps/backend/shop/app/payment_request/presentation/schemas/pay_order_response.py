@@ -10,3 +10,4 @@ class PayOrderResponse(BaseModel):
     currency: str
     order_number: str
     payment_methods: list[str]
+    checkout_url: str | None = None  # mode Stripe : page de paiement hébergée

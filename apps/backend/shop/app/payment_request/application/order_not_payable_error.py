@@ -2,6 +2,7 @@ MESSAGES = {
     "order_already_paid": "Commande deja payee.",
     "order_expired": "Commande expiree.",
     "no_pending_payment": "Aucun paiement en attente pour cette commande.",
+    "payment_by_stripe": "Le paiement se fait sur la page Stripe.",
 }
 
 

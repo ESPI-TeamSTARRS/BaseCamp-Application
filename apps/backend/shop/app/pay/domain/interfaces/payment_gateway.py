@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from app.pay.domain.entities.checkout_session_ref import CheckoutSessionRef
 from app.pay.domain.entities.payment_intent_ref import PaymentIntentRef
 
 
@@ -25,3 +26,11 @@ class PaymentGateway(ABC):
         self, intent_id: str, payment_method: str, idempotency_key: str
     ) -> PaymentIntentRef:
         """Confirme l'intention avec une méthode de test (jamais de donnée de carte)."""
+
+    @abstractmethod
+    def create_checkout_session(self, intent_id: str) -> CheckoutSessionRef:
+        """Page de paiement Stripe de l'intention (créée une fois, rejouée ensuite), sans montant.
+
+        Lève PaymentRejectedError si l'intention n'est plus payable ou si le mode Stripe n'est pas
+        actif chez le fournisseur.
+        """

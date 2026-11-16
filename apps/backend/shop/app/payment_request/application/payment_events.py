@@ -4,6 +4,7 @@ CURRENCY = "EUR"
 PAYMENT_REQUESTED = "order.payment_requested"
 PAYMENT_REJECTED = "order.payment_rejected"
 PAYMENT_UNAVAILABLE = "order.payment_unavailable"
+CHECKOUT_PROVIDED = "order.checkout_provided"
 ORDER_PAID = "order.paid"
 PAYMENT_FAILED = "order.payment_failed"
 

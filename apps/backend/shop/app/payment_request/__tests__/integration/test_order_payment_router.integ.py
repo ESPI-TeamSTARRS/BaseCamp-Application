@@ -10,6 +10,7 @@ from app.core.__tests__.in_memory_business_event_logger import InMemoryBusinessE
 from app.core.logging.structlog_business_event_logger import StructlogBusinessEventLogger
 from app.main import create_app
 from app.order.domain.enums.order_status import OrderStatus
+from app.pay.domain.exceptions.payment_unavailable_error import PaymentUnavailableError
 from app.payment_request.__tests__.fakes import (
     ORDER_ID,
     OTHER_ORDER_ID,
@@ -211,3 +212,90 @@ class TestOrderPaymentLogsFollowTheCommonSchema:
         raw = stream.getvalue()
         assert ORDER_ID not in raw
         assert "Authorization" not in raw
+
+
+class _StripeClient(_Client):
+    def __init__(
+        self,
+        store: PaymentStore | None = None,
+        gateway: RecordingGateway | None = None,
+        events: Any = None,
+    ) -> None:
+        super().__init__(store, gateway, events)
+        factory = lambda: FakePaymentUnitOfWork(self.store)  # noqa: E731
+        self.application.state.request_order_payment_use_case = RequestOrderPaymentUseCase(
+            factory, self.gateway, self.events, stripe_checkout=True
+        )
+        self.application.state.confirm_order_payment_use_case = ConfirmOrderPaymentUseCase(
+            factory, self.gateway, self.events, stripe_checkout=True
+        )
+
+
+class TestStripeMode:
+    async def test_pay_returns_the_stripe_page_and_no_simulated_method(self) -> None:
+        response = await _StripeClient().post(_pay())
+
+        assert response.status_code == 201
+        assert response.json() == {
+            "payment_intent_id": "pi-1",
+            "status": "requires_confirmation",
+            "amount_cents": 4490,
+            "currency": "EUR",
+            "order_number": "BC-ABCDEFGHJK",
+            "payment_methods": [],
+            "checkout_url": "https://checkout.stripe.com/c/pay/pi-1",
+        }
+
+    async def test_the_response_never_names_the_payment_service(self) -> None:
+        response = await _StripeClient().post(_pay())
+
+        assert "payment:8000" not in response.text and "/payments/" not in response.text
+
+    async def test_asking_again_gives_200_and_the_same_page(self) -> None:
+        client = _StripeClient()
+        first = await client.post(_pay())
+
+        second = await client.post(_pay())
+
+        assert second.status_code == 200
+        assert second.json()["checkout_url"] == first.json()["checkout_url"]
+
+    async def test_a_client_supplied_amount_is_ignored(self) -> None:
+        client = _StripeClient()
+
+        response = await client.post(_pay(), {"amount": 1, "amount_cents": 1})
+
+        assert response.status_code == 201
+        assert client.gateway.created[0][1] == 4490
+
+    async def test_a_paid_or_expired_order_is_still_409(self) -> None:
+        paid = await _StripeClient(store_with(OrderStatus.PAID)).post(_pay())
+        expired = await _StripeClient(store_with(OrderStatus.EXPIRED)).post(_pay())
+
+        assert (paid.status_code, paid.json()) == (409, {"detail": "Commande deja payee."})
+        assert (expired.status_code, expired.json()) == (409, {"detail": "Commande expiree."})
+
+    async def test_an_unavailable_payment_gives_a_clean_503_and_leaves_the_order_unchanged(
+        self,
+    ) -> None:
+        client = _StripeClient(gateway=RecordingGateway(checkout_error=PaymentUnavailableError()))
+
+        response = await client.post(_pay())
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Paiement indisponible, reessayez plus tard."}
+        assert response.headers["Retry-After"] == "5"
+        assert client.store.orders[ORDER_ID].status is OrderStatus.PENDING_PAYMENT
+
+    async def test_the_synchronous_confirmation_is_a_409_and_pays_nothing(self) -> None:
+        client = _StripeClient()
+        await client.post(_pay())
+
+        response = await client.post(_confirm(), {"payment_method": "pm_test_success"})
+
+        assert (response.status_code, response.json()) == (
+            409,
+            {"detail": "Le paiement se fait sur la page Stripe."},
+        )
+        assert client.gateway.confirmed == []
+        assert client.store.orders[ORDER_ID].status is OrderStatus.PENDING_PAYMENT
