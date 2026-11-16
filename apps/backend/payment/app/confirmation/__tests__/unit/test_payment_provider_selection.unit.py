@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import pytest
+
 from app.confirmation.domain.exceptions.payment_provider_unavailable_error import (
     PaymentProviderUnavailableError,
 )
-
 from app.confirmation.infrastructure.providers.internal_payment_provider import (
     InternalPaymentProvider,
 )
