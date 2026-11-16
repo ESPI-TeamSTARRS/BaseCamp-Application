@@ -6,15 +6,22 @@
 #
 # La cle est un FICHIER monte en secret Docker (/run/secrets/...), jamais une variable en clair. Une cle
 # absente, illisible ou qui n'est pas `sk_test_...` empeche `payment` de demarrer, sans afficher la valeur.
-# Tant que l'adaptateur Stripe n'est pas branche (WORK-88), `payment` refuse aussi de demarrer avec une cle
-# valide plutot que de retomber en silence sur le fournisseur simule.
+# Session Checkout (WORK-88) : `payment` appelle api.stripe.com par le reseau sortant `payment-egress`, ajoute
+# ICI seulement (jamais en production par defaut). Le fournisseur simule n'est jamais un repli.
 
 services:
   payment:
     environment:
       APP_PAYMENT_PROVIDER: stripe
       APP_STRIPE_SECRET_KEY_FILE: /run/secrets/payment_stripe_secret_key
+      APP_STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-http://localhost:8080/commande/{order_reference}/merci}
+      APP_STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-http://localhost:8080/commande/{order_reference}/annulee}
+    networks: [payment-egress]
     secrets: [payment_stripe_secret_key]
+
+networks:
+  payment-egress:
+    driver: bridge
 
 secrets:
   payment_stripe_secret_key:
