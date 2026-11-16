@@ -10,6 +10,8 @@ const ApiIntentSchema = z.object({
   amount_cents: z.number().int(),
   order_number: z.string(),
   payment_methods: z.array(z.string()),
+  // Mode Stripe (WORK-91) : adresse de la page de paiement hébergée par Stripe.
+  checkout_url: z.string().optional(),
 });
 
 const ApiConfirmationSchema = z.object({
@@ -25,6 +27,8 @@ export interface PaymentRequest {
   orderNumber: string;
   amountEur: number;
   methods: string[];
+  /** Page de paiement Stripe (mode Stripe) ; null en mode simulé (boutons de test). */
+  checkoutUrl: string | null;
 }
 
 export interface PaymentResult {
@@ -44,6 +48,20 @@ type FetchLike = typeof fetch;
 
 export function isOrderId(value: string): boolean {
   return ORDER_ID.test(value);
+}
+
+/**
+ * Seule une page https de Stripe (stripe.com ou un sous-domaine, sans identifiants) est une destination
+ * acceptable : le navigateur n'est jamais envoyé vers une adresse inattendue.
+ */
+export function isStripeCheckoutUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const stripeHost = url.hostname === 'stripe.com' || url.hostname.endsWith('.stripe.com');
+    return url.protocol === 'https:' && stripeHost && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 async function failureFor(response: Response): Promise<Failure> {
@@ -80,6 +98,9 @@ export async function requestPayment(
     const response = await post(`${ORDERS_URL}/${orderId}/pay`, undefined, fetchImpl);
     if (!response.ok) return await failureFor(response);
     const raw = ApiIntentSchema.parse(await response.json());
+    if (raw.checkout_url !== undefined && !isStripeCheckoutUrl(raw.checkout_url)) {
+      return { ok: false, reason: 'unavailable' };
+    }
     return {
       ok: true,
       payment: {
@@ -87,6 +108,7 @@ export async function requestPayment(
         orderNumber: raw.order_number,
         amountEur: raw.amount_cents / 100,
         methods: raw.payment_methods,
+        checkoutUrl: raw.checkout_url ?? null,
       },
     };
   } catch {

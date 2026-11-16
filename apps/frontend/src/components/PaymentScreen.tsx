@@ -13,6 +13,8 @@ import {
   type PaymentRequest,
   type TestPaymentMethod,
 } from '../lib/order-payment';
+import { rememberPaymentOrder } from '../lib/payment-return';
+import { StripeCheckoutPanel } from './StripeCheckoutPanel';
 
 type View =
   | { step: 'loading' }
@@ -20,7 +22,14 @@ type View =
   | { step: 'paying'; payment: PaymentRequest }
   | { step: 'error'; message: string; retry: boolean };
 
-/** Écran de paiement simulé : aucun champ de carte, seulement un résultat de test à choisir. */
+function isStripeView(view: View): boolean {
+  return (view.step === 'ready' || view.step === 'paying') && view.payment.checkoutUrl !== null;
+}
+
+/**
+ * Écran de paiement. Mode simulé : aucun champ de carte, seulement un résultat de test à choisir. Mode
+ * Stripe : redirection vers la page de paiement de Stripe (adresse renvoyée par la boutique).
+ */
 export function PaymentScreen({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { clearCart } = useCart();
@@ -36,6 +45,23 @@ export function PaymentScreen({ orderId }: { orderId: string }) {
       cancelled = true;
     };
   }, [orderId, attempt]);
+
+  // Retour arrière depuis Stripe (page restaurée par le navigateur) : le bouton redevient actif.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setAttempt((n) => n + 1);
+    }
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
+  function goToStripe(payment: PaymentRequest) {
+    if (payment.checkoutUrl === null) return;
+    // On retient la commande pour pouvoir reprendre le paiement au retour (annulation ou refus).
+    rememberPaymentOrder(window.sessionStorage, payment.orderNumber, orderId);
+    setView({ step: 'paying', payment });
+    window.location.assign(payment.checkoutUrl);
+  }
 
   async function pay(payment: PaymentRequest, method: TestPaymentMethod) {
     setView({ step: 'paying', payment });
@@ -62,7 +88,9 @@ export function PaymentScreen({ orderId }: { orderId: string }) {
         <ShieldCheck className="text-forest" /> Paiement
       </h1>
       <p className="mt-2 text-sm text-granite/70">
-        Paiement de démonstration : aucune donnée bancaire n&apos;est demandée.
+        {isStripeView(view)
+          ? 'Paiement de démonstration sur la page sécurisée de Stripe.'
+          : "Paiement de démonstration : aucune donnée bancaire n'est demandée."}
       </p>
 
       {view.step === 'loading' && <p className="mt-8 text-granite/70">Préparation du paiement…</p>}
@@ -89,7 +117,15 @@ export function PaymentScreen({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {(view.step === 'ready' || view.step === 'paying') && (
+      {(view.step === 'ready' || view.step === 'paying') && view.payment.checkoutUrl !== null && (
+        <StripeCheckoutPanel
+          payment={view.payment}
+          redirecting={view.step === 'paying'}
+          onPay={() => goToStripe(view.payment)}
+        />
+      )}
+
+      {(view.step === 'ready' || view.step === 'paying') && view.payment.checkoutUrl === null && (
         <div className="mt-8 space-y-6">
           <dl className="rounded-2xl bg-sand p-5 text-sm">
             <div className="flex justify-between">
