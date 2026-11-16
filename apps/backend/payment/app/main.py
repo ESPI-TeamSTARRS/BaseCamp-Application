@@ -70,7 +70,7 @@ def create_app(
     )
     application.state.rate_limiter = build_rate_limiter(engine, settings, events)
     application.state.receive_stripe_webhook_use_case = build_receive_stripe_webhook(
-        settings, events
+        engine, settings, events
     )
     observability = build_observability_services(engine, settings, events)
     application.state.observability_services = observability

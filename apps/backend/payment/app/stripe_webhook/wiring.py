@@ -1,13 +1,21 @@
 import time
+from datetime import UTC, datetime
+
+from sqlalchemy import Engine
 
 from app.core.config import Settings
 from app.core.events.business_event_logger import BusinessEventLogger
+from app.stripe_webhook.application.process_stripe_event import ProcessStripeEventUseCase
 from app.stripe_webhook.application.receive_stripe_webhook import ReceiveStripeWebhookUseCase
+from app.stripe_webhook.domain.services.stripe_event_parser import StripeEventParser
 from app.stripe_webhook.domain.services.stripe_signature_verifier import StripeSignatureVerifier
+from app.stripe_webhook.infrastructure.repositories.sqlalchemy_stripe_event_unit_of_work import (
+    SqlAlchemyStripeEventUnitOfWork,
+)
 
 
 def build_receive_stripe_webhook(
-    settings: Settings, events: BusinessEventLogger
+    engine: Engine, settings: Settings, events: BusinessEventLogger
 ) -> ReceiveStripeWebhookUseCase:
     """Assemble la réception : sans secret de webhook configuré, toute requête est refusée (400)."""
     secret = settings.stripe_webhook_secret
@@ -15,4 +23,7 @@ def build_receive_stripe_webhook(
     verifier = StripeSignatureVerifier(
         secrets, settings.stripe_webhook_tolerance_seconds, lambda: int(time.time())
     )
-    return ReceiveStripeWebhookUseCase(verifier, events)
+    processor = ProcessStripeEventUseCase(
+        SqlAlchemyStripeEventUnitOfWork(engine), lambda: datetime.now(UTC), events
+    )
+    return ReceiveStripeWebhookUseCase(verifier, StripeEventParser(), processor, events)
