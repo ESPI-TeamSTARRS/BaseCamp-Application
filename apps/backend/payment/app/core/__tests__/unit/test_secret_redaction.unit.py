@@ -1,5 +1,6 @@
 import io
 import logging
+from pathlib import Path
 
 from app.caller_identity.__tests__.tokens import SHOP_TOKEN
 from app.core.config import Settings
@@ -83,3 +84,56 @@ class TestInstallLogRedaction:
         assert "[REDACTED]" in output
         assert TOKEN not in output and "db-pass-very-secret" not in output and "4242" not in output
         assert len([f for f in handler.filters if isinstance(f, SecretRedactionFilter)]) == 1
+
+
+class TestStripeKeys:
+    BODY = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+
+    def test_stripe_keys_of_every_kind_are_masked_even_when_unknown(self) -> None:
+        keys = [
+            f"{prefix}{self.BODY}"
+            for prefix in (
+                "sk_" + "test_",
+                "sk_" + "live_",
+                "rk_" + "test_",
+                "pk_" + "test_",
+                "whsec_",
+            )
+        ]
+
+        for key in keys:
+            text = _redacted(f"appel Stripe avec {key} refuse")
+
+            assert self.BODY not in text
+            assert "[REDACTED]" in text
+
+    def test_ordinary_words_that_start_like_a_key_are_left_alone(self) -> None:
+        text = _redacted("sk_test_court et risk_assessment ok")
+
+        assert text == "sk_test_court et risk_assessment ok"
+
+    def test_the_configured_stripe_keys_are_masked_in_technical_logs(self, tmp_path: Path) -> None:
+        key = "sk_" + "test_" + self.BODY
+        webhook = "whsec_" + self.BODY + "ZZ"
+        key_file = tmp_path / "key"
+        key_file.write_text(key, encoding="utf-8")
+        webhook_file = tmp_path / "webhook"
+        webhook_file.write_text(webhook, encoding="utf-8")
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        framework = logging.getLogger("uvicorn.error")
+        framework.addHandler(handler)
+        try:
+            install_log_redaction(
+                Settings(
+                    payment_provider="stripe",
+                    stripe_secret_key_file=str(key_file),
+                    stripe_webhook_secret_file=str(webhook_file),
+                )
+            )
+
+            framework.error("cle %s secret %s", key, webhook)
+        finally:
+            framework.removeHandler(handler)
+
+        assert key not in stream.getvalue() and webhook not in stream.getvalue()
