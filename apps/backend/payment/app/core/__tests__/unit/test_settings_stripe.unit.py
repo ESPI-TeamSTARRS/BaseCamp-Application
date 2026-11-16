@@ -175,3 +175,40 @@ class TestStripeCheckoutSettings:
     def test_the_stripe_timeout_is_bounded(self, value: float) -> None:
         with pytest.raises(ValidationError):
             Settings(stripe_api_timeout_seconds=value)
+
+
+class TestStripeWebhookSettings:
+    def test_the_webhook_secret_is_read_even_while_the_simulated_provider_is_selected(
+        self, tmp_path: Path
+    ) -> None:
+        settings = Settings(stripe_webhook_secret_file=_file(tmp_path, WEBHOOK_SECRET, "webhook"))
+
+        assert settings.payment_provider == "simulated"
+        assert settings.stripe_webhook_secret is not None
+        assert settings.stripe_webhook_secret.get_secret_value() == WEBHOOK_SECRET
+
+    def test_a_malformed_webhook_secret_stops_the_startup_whatever_the_provider(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(ValidationError, match="whsec_"):
+            Settings(stripe_webhook_secret_file=_file(tmp_path, "pas-un-secret", "webhook"))
+
+    def test_the_webhook_has_a_bounded_tolerance_and_its_own_body_limit(self) -> None:
+        settings = Settings()
+
+        assert settings.stripe_webhook_tolerance_seconds == 300
+        assert settings.stripe_webhook_max_body_bytes == 65_536
+        assert settings.stripe_webhook_max_body_bytes > settings.max_body_bytes
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("stripe_webhook_tolerance_seconds", 0),
+            ("stripe_webhook_tolerance_seconds", 3601),
+            ("stripe_webhook_max_body_bytes", 1023),
+            ("stripe_webhook_max_body_bytes", 1_048_577),
+        ],
+    )
+    def test_the_bounds_are_enforced(self, name: str, value: int) -> None:
+        with pytest.raises(ValidationError):
+            Settings(**{name: value})  # type: ignore[arg-type]

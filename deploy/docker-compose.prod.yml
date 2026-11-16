@@ -44,7 +44,7 @@ services:
       BACKOFFICE_HOST: ${BACKOFFICE_HOST:-mercure-basecamp.tempulse.fr}
     volumes:
       - ./traefik/dynamic.prod.yml:/etc/traefik/dynamic.yml:ro
-    networks: [web, app]
+    networks: [web, app, payment-hook]
     read_only: true
     labels:
       # false = la pile tourne mais le Traefik du serveur ne la route pas (test avant bascule, sans conflit
@@ -219,7 +219,7 @@ services:
     image: ${PAYMENT_IMAGE}
     mem_limit: 256m
     environment: *payment-env
-    networks: [payment-net, payment-data]
+    networks: [payment-net, payment-data, payment-hook]
     read_only: true
     depends_on:
       payment-migrate: { condition: service_completed_successfully }
@@ -440,6 +440,14 @@ networks:
     internal: true
   payment-net:
     internal: true
+  # Reseau dedie a la SEULE route /api/stripe/webhook (WORK-87) : traefik et payment, rien d'autre.
+  # Interne (aucune sortie), mais sous-reseau FIXE : un reseau cree par Docker sans plage fixe peut
+  # recouvrir le VPN ou le LAN de l'hote (incident du 22/10, voir docs/deployment/runbook.md).
+  payment-hook:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.251.0.0/24
   payment-data:
     internal: true
   auth-data:

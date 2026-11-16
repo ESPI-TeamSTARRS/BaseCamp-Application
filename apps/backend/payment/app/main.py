@@ -39,6 +39,9 @@ from app.stripe_checkout.domain.interfaces.stripe_checkout_gateway import Stripe
 from app.stripe_checkout.error_handlers import register_stripe_checkout_error_handlers
 from app.stripe_checkout.presentation.router import router as stripe_checkout_router
 from app.stripe_checkout.wiring import build_stripe_checkout_gateway, build_stripe_checkout_services
+from app.stripe_webhook.error_handlers import register_stripe_webhook_error_handlers
+from app.stripe_webhook.presentation.router import router as stripe_webhook_router
+from app.stripe_webhook.wiring import build_receive_stripe_webhook
 
 
 def create_app(
@@ -66,6 +69,9 @@ def create_app(
         engine, settings, events, checkout_gateway or build_stripe_checkout_gateway(settings)
     )
     application.state.rate_limiter = build_rate_limiter(engine, settings, events)
+    application.state.receive_stripe_webhook_use_case = build_receive_stripe_webhook(
+        settings, events
+    )
     observability = build_observability_services(engine, settings, events)
     application.state.observability_services = observability
     application.include_router(health_router)
@@ -75,18 +81,23 @@ def create_app(
     application.include_router(cancellation_router)
     application.include_router(refund_router)
     application.include_router(stripe_checkout_router)
+    application.include_router(stripe_webhook_router)
     register_error_handlers(application, events)
     register_confirmation_error_handlers(application)
     register_cancellation_error_handlers(application)
     register_refund_error_handlers(application)
     register_stripe_checkout_error_handlers(application)
+    register_stripe_webhook_error_handlers(application)
     register_rate_limit_error_handlers(application)
     register_database_unavailable_handler(application, events)
     register_unhandled_error_handler(application, events)
     # Le dernier ajouté est le plus externe : corrélation, observation (voit aussi les 503 et 504),
     # concurrence, délais, taille du corps.
     application.add_middleware(
-        BodySizeLimitMiddleware, max_bytes=settings.max_body_bytes, events=events
+        BodySizeLimitMiddleware,
+        max_bytes=settings.max_body_bytes,
+        events=events,
+        path_limits={"/stripe/webhook": settings.stripe_webhook_max_body_bytes},
     )
     application.add_middleware(
         RequestTimeoutMiddleware,

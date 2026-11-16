@@ -28,6 +28,7 @@ RATE_LIMITERS = {
     "auth-password-rate-limit",
     "admin-rate-limit",
     "backoffice-login-rate-limit",
+    "stripe-webhook-rate-limit",
 }  # cle IP differente en prod
 
 SAMPLE_ENV = {

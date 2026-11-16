@@ -30,6 +30,9 @@ Un reverse proxy (Traefik) est le seul point d'entrée publié. Il route les req
 | `/api/auth/backoffice/*` **sur l'hôte `BACKOFFICE_HOST` seulement** | `auth` (connexion du back-office en trois temps) |
 | `/.well-known/jwks.json` | `auth` (clés publiques de vérification des jetons, lecture seule) |
 | `/api/payment/*` | `payment` (accès restreint) |
+| `/api/stripe/webhook` | `payment`, **cette seule route** (webhook signé de Stripe, WORK-87) |
+
+**Exception unique pour `payment`** (WORK-87) : Stripe doit joindre `payment` depuis Internet, donc `POST /api/stripe/webhook` est routé vers lui, et rien d'autre. Traefik n'atteint `payment` que par un réseau dédié `payment-hook` (interne, `traefik` et `payment` seulement) : il ne rejoint ni `payment-net`, ni `payment-data`, ni les bases. La route est durcie à la passerelle (limite de débit, 64 Kio de corps) et par la signature, vérifiée avant tout effet. Détail : [payment.md](../services/payment.md#webhook-entrant-de-stripe-work-87).
 
 La passerelle porte les préoccupations transverses : TLS, limitation de débit par IP réelle, taille maximale des corps de requête, délais d'expiration, en-têtes de sécurité et filtrage applicatif. Les services restent sur un réseau interne et ne sont jamais publiés directement. Les appels entre services (par exemple `shop` vers `payment`) passent par le réseau interne avec un jeton de service.
 
