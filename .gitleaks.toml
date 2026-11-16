@@ -7,3 +7,17 @@ useDefault = true
 [allowlist]
 description = "Placeholders de developpement"
 regexes = ['''re_placeholder''']
+
+# Cles Stripe : les regles par defaut couvrent les cles secretes et restreintes (sk_, rk_); on ajoute la cle
+# publiable et le secret de signature des webhooks (WORK-86). Les cles vivent dans des fichiers de secrets.
+[[rules]]
+id = "stripe-publishable-key"
+description = "Cle publiable Stripe (test ou live)"
+regex = '''\bpk_(?:test|live)_[A-Za-z0-9]{16,}'''
+keywords = ["pk_test_", "pk_live_"]
+
+[[rules]]
+id = "stripe-webhook-secret"
+description = "Secret de signature de webhook Stripe"
+regex = '''\bwhsec_[A-Za-z0-9]{16,}'''
+keywords = ["whsec_"]
