@@ -48,3 +48,29 @@ class TestSettingsLogPseudonymKey:
         monkeypatch.setenv("APP_LOG_PSEUDONYM_KEY", "une-cle-longue-et-secrete")
 
         assert Settings().log_pseudonym_key == "une-cle-longue-et-secrete"
+
+
+class TestStripeCheckoutSettings:
+    def test_stripe_checkout_is_off_by_default_with_a_longer_checkout_timeout(self) -> None:
+        settings = Settings()
+
+        assert settings.stripe_checkout_enabled is False
+        assert (
+            settings.payment_checkout_read_timeout_seconds > settings.payment_read_timeout_seconds
+        )
+
+    def test_it_is_enabled_by_the_environment_with_the_payment_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APP_STRIPE_CHECKOUT_ENABLED", "true")
+
+        assert Settings().stripe_checkout_enabled is True
+
+    def test_it_cannot_be_enabled_with_the_simulated_provider(self) -> None:
+        with pytest.raises(ValueError, match="APP_PAYMENT_PROVIDER=http"):
+            Settings(stripe_checkout_enabled=True, payment_provider="simulated")
+
+    @pytest.mark.parametrize("value", [0, -1, 31])
+    def test_the_checkout_timeout_is_bounded(self, value: float) -> None:
+        with pytest.raises(ValueError, match="payment_checkout_read_timeout_seconds"):
+            Settings(payment_checkout_read_timeout_seconds=value)

@@ -11,3 +11,4 @@ class OrderPayment:
     intent: PaymentIntentRef
     created: bool
     payment_methods: tuple[str, ...]
+    checkout_url: str | None = None  # page de paiement Stripe (mode Stripe seulement)

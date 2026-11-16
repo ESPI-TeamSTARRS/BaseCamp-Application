@@ -235,16 +235,28 @@ def create_app() -> FastAPI:
                 settings.payment_scope,
                 settings.payment_renew_margin_seconds,
             ),
+            httpx.Timeout(
+                connect=settings.payment_connect_timeout_seconds,
+                read=settings.payment_checkout_read_timeout_seconds,
+                write=settings.payment_read_timeout_seconds,
+                pool=settings.payment_connect_timeout_seconds,
+            ),
         )
     )
     application.state.start_payment_use_case = StartPaymentUseCase(
         application.state.quote_cart_use_case, gateway, events
     )
     application.state.request_order_payment_use_case = RequestOrderPaymentUseCase(
-        lambda: SqlAlchemyPaymentUnitOfWork(engine), gateway, events
+        lambda: SqlAlchemyPaymentUnitOfWork(engine),
+        gateway,
+        events,
+        settings.stripe_checkout_enabled,
     )
     application.state.confirm_order_payment_use_case = ConfirmOrderPaymentUseCase(
-        lambda: SqlAlchemyPaymentUnitOfWork(engine), gateway, events
+        lambda: SqlAlchemyPaymentUnitOfWork(engine),
+        gateway,
+        events,
+        settings.stripe_checkout_enabled,
     )
     application.state.receive_payment_webhook_use_case = ReceivePaymentWebhookUseCase(
         lambda: SqlAlchemyConfirmationUnitOfWork(engine),

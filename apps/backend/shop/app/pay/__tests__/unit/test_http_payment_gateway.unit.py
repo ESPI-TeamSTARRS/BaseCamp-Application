@@ -207,3 +207,103 @@ class TestRefusedToken:
             _call(_gateway(httpx.MockTransport(handler), NoToken()))
 
         assert calls == []
+
+
+CHECKOUT = {
+    "intent_id": "7d1f",
+    "session_id": "cs_test_a1",
+    "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_a1",
+}
+
+
+class TestCreateCheckoutSession:
+    def test_asks_payment_for_the_page_without_any_body_or_amount(self) -> None:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(201, json=CHECKOUT)
+
+        session = _gateway(httpx.MockTransport(handler)).create_checkout_session("7d1f")
+
+        request = seen[0]
+        assert (request.method, request.url.path) == (
+            "POST",
+            "/payments/intents/7d1f/checkout-session",
+        )
+        assert request.headers["Authorization"] == f"Bearer {TOKEN}"
+        assert request.content == b""
+        assert session.url == "https://checkout.stripe.com/c/pay/cs_test_a1"
+
+    def test_a_replay_answered_200_is_accepted(self) -> None:
+        gateway = _gateway(_responding(200, CHECKOUT))
+
+        assert gateway.create_checkout_session("7d1f").url.startswith(
+            "https://checkout.stripe.com/"
+        )
+
+    def test_the_intent_identifier_is_encoded_in_the_path(self) -> None:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(201, json=CHECKOUT)
+
+        _gateway(httpx.MockTransport(handler)).create_checkout_session("../x?y=1")
+
+        assert seen[0].url.raw_path == b"/payments/intents/..%2Fx%3Fy%3D1/checkout-session"
+
+    @pytest.mark.parametrize("status", [429, 500, 503, 401])
+    def test_an_unavailable_payment_or_stripe_error_is_unavailable(self, status: int) -> None:
+        with pytest.raises(PaymentUnavailableError):
+            _gateway(_responding(status, {"detail": "boom"})).create_checkout_session("7d1f")
+
+    @pytest.mark.parametrize(("status", "conflict"), [(409, True), (404, False)])
+    def test_a_refusal_is_a_rejection(self, status: int, conflict: bool) -> None:
+        with pytest.raises(PaymentRejectedError) as error:
+            _gateway(_responding(status, {"detail": "x"})).create_checkout_session("7d1f")
+
+        assert error.value.conflict is conflict
+
+    def test_an_unreachable_payment_is_unavailable(self) -> None:
+        gateway = _gateway(_raising(httpx.ConnectError("refused")))
+
+        with pytest.raises(PaymentUnavailableError):
+            gateway.create_checkout_session("7d1f")
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            None,
+            [],
+            {},
+            {"checkout_url": 12},
+            {"checkout_url": "http://checkout.stripe.com/c/pay/x"},
+            {"checkout_url": "https://evil.example/c/pay/x"},
+            {"checkout_url": "https://checkout.stripe.com.evil.io/x"},
+            {"checkout_url": "https://user:pw@checkout.stripe.com/x"},
+            {"checkout_url": "javascript:alert(1)"},
+        ],
+    )
+    def test_an_unexpected_address_is_never_handed_to_the_browser(self, body: object) -> None:
+        with pytest.raises(PaymentUnavailableError):
+            _gateway(_responding(201, body)).create_checkout_session("7d1f")
+
+    def test_a_dedicated_timeout_applies_to_the_checkout_call_only(self) -> None:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(201, json=CHECKOUT if "checkout" in request.url.path else INTENT)
+
+        gateway = HttpPaymentGateway(
+            httpx.Client(base_url="http://payment:8000", transport=httpx.MockTransport(handler)),
+            FixedToken(),
+            httpx.Timeout(connect=1.0, read=8.0, write=3.0, pool=1.0),
+        )
+
+        gateway.create_checkout_session("7d1f")
+        gateway.get_intent("7d1f")
+
+        assert seen[0].extensions["timeout"]["read"] == 8.0
+        assert seen[1].extensions["timeout"]["read"] != 8.0

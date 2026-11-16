@@ -36,15 +36,20 @@ class ConfirmOrderPaymentUseCase:
         uow_factory: Callable[[], PaymentUnitOfWork],
         gateway: PaymentGateway,
         events: BusinessEventLogger,
+        stripe_checkout: bool = False,
     ) -> None:
         self._uow_factory = uow_factory
         self._gateway = gateway
         self._events = events
+        self._stripe_checkout = stripe_checkout
 
     def execute(self, order_id: str, payment_method: str) -> ConfirmedPayment:
         method = PaymentMethod(payment_method)
         with self._uow_factory() as uow:
             order = self._confirmable_order(uow, order_id)
+            if self._stripe_checkout:  # le paiement se fait chez Stripe : seul son webhook règle
+                self._events.log(payment_events.rejected("payment_by_stripe", order.number))
+                raise OrderNotPayableError("payment_by_stripe")
             attempt = self._pending_attempt(uow, order)
             status = self._confirm(order, attempt, method)
             uow.attempts.set_status(attempt.id, status)

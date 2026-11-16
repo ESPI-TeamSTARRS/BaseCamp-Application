@@ -23,7 +23,10 @@ router = APIRouter(tags=["payment-request"])
 
 
 @router.post(
-    "/orders/{order_id}/pay", response_model=PayOrderResponse, status_code=status.HTTP_201_CREATED
+    "/orders/{order_id}/pay",
+    response_model=PayOrderResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
 )
 def pay_order(
     order_id: UUID,
@@ -45,6 +48,7 @@ def pay_order(
         currency=payment.intent.currency,
         order_number=payment.order_number,
         payment_methods=list(payment.payment_methods),
+        checkout_url=payment.checkout_url,
     )
 
 

@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 
 from app.core.events.business_event import BusinessEvent
 from app.core.events.business_event_logger import BusinessEventLogger
@@ -32,17 +33,19 @@ class RequestOrderPaymentUseCase:
         uow_factory: Callable[[], PaymentUnitOfWork],
         gateway: PaymentGateway,
         events: BusinessEventLogger,
+        stripe_checkout: bool = False,
     ) -> None:
         self._uow_factory = uow_factory
         self._gateway = gateway
         self._events = events
+        self._stripe_checkout = stripe_checkout
 
     def execute(self, order_id: str) -> OrderPayment:
         with self._uow_factory() as uow:
             order = self._payable_order(uow, order_id)
             attempts = uow.attempts.list_for_order(order.id)
             if attempts and attempts[-1].status == REQUIRES_CONFIRMATION:
-                return self._replay(order, attempts[-1])
+                return self._with_checkout(order, self._replay(order, attempts[-1]))
             attempt, intent = self._create(order, len(attempts) + 1)
             uow.attempts.add(attempt)
             uow.commit()
@@ -58,7 +61,31 @@ class RequestOrderPaymentUseCase:
                 },
             )
         )
-        return OrderPayment(order.number, intent, created=True, payment_methods=_METHODS)
+        payment = OrderPayment(order.number, intent, created=True, payment_methods=_METHODS)
+        return self._with_checkout(order, payment)
+
+    def _with_checkout(self, order: PayableOrder, payment: OrderPayment) -> OrderPayment:
+        """Mode Stripe : ajoute l'adresse de la page de paiement (créée ou rejouée par `payment`).
+
+        L'appel se fait une fois la tentative enregistrée : en cas d'échec la commande est inchangée et la
+        demande peut être rejouée (la session est idempotente chez `payment`).
+        """
+        if not self._stripe_checkout:
+            return payment
+        try:
+            session = self._gateway.create_checkout_session(payment.intent.id)
+        except PaymentUnavailableError:
+            self._events.log(payment_events.unavailable(order.number))
+            raise
+        self._events.log(
+            BusinessEvent.success(
+                payment_events.CHECKOUT_PROVIDED,
+                resource_type="order",
+                resource_id=order.number,
+                attributes={"amount_cents": order.total_cents, "currency": payment_events.CURRENCY},
+            )
+        )
+        return replace(payment, payment_methods=(), checkout_url=session.url)
 
     def _payable_order(self, uow: PaymentUnitOfWork, order_id: str) -> PayableOrder:
         order = uow.orders.find_for_update(order_id)

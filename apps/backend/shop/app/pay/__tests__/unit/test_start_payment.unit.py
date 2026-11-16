@@ -5,6 +5,7 @@ from app.cart.application.invalid_cart_error import InvalidCartError
 from app.cart.application.quote_cart import QuoteCartUseCase
 from app.core.__tests__.in_memory_business_event_logger import InMemoryBusinessEventLogger
 from app.pay.application.start_payment import StartPaymentUseCase
+from app.pay.domain.entities.checkout_session_ref import CheckoutSessionRef
 from app.pay.domain.entities.payment_intent_ref import PaymentIntentRef
 from app.pay.domain.exceptions.payment_rejected_error import PaymentRejectedError
 from app.pay.domain.exceptions.payment_unavailable_error import PaymentUnavailableError
@@ -23,6 +24,9 @@ class RecordingGateway(PaymentGateway):
             raise self._error
         self.calls.append((order_reference, amount_cents, currency, idempotency_key))
         return PaymentIntentRef("intent-1", "requires_confirmation", amount_cents, currency)
+
+    def create_checkout_session(self, intent_id: str) -> CheckoutSessionRef:
+        raise NotImplementedError
 
     def get_intent(self, intent_id: str) -> PaymentIntentRef:
         raise NotImplementedError

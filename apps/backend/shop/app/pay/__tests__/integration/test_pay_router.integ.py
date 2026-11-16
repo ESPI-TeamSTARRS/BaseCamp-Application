@@ -7,6 +7,7 @@ from app.cart.application.quote_cart import QuoteCartUseCase
 from app.core.__tests__.in_memory_business_event_logger import InMemoryBusinessEventLogger
 from app.main import create_app
 from app.pay.application.start_payment import StartPaymentUseCase
+from app.pay.domain.entities.checkout_session_ref import CheckoutSessionRef
 from app.pay.domain.entities.payment_intent_ref import PaymentIntentRef
 from app.pay.domain.exceptions.payment_rejected_error import PaymentRejectedError
 from app.pay.domain.exceptions.payment_unavailable_error import PaymentUnavailableError
@@ -28,6 +29,9 @@ class FakeGateway(PaymentGateway):
             raise self.error
         self.amounts.append(amount_cents)
         return PaymentIntentRef("intent-1", "requires_confirmation", amount_cents, currency)
+
+    def create_checkout_session(self, intent_id: str) -> CheckoutSessionRef:
+        raise NotImplementedError
 
     def get_intent(self, intent_id: str) -> PaymentIntentRef:
         raise NotImplementedError
