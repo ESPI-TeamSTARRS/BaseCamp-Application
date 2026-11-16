@@ -135,6 +135,48 @@ class TestStripeWebhookSecret:
         assert BODY not in str(error.value)
 
 
+class TestStripeCheckoutSettings:
+    def test_the_defaults_point_to_stripe_and_have_no_return_urls(self) -> None:
+        settings = Settings()
+
+        assert settings.stripe_api_base_url == "https://api.stripe.com"
+        assert settings.stripe_success_url == "" and settings.stripe_cancel_url == ""
+        assert settings.stripe_api_timeout_seconds == 5.0
+
+    def test_valid_return_urls_and_loopback_base_url_are_accepted(self) -> None:
+        settings = Settings(
+            stripe_success_url="https://shop.example/commande/{order_reference}/merci",
+            stripe_cancel_url="http://localhost:8080/panier",
+            stripe_api_base_url="http://127.0.0.1:12111",
+        )
+
+        assert settings.stripe_cancel_url == "http://localhost:8080/panier"
+
+    @pytest.mark.parametrize(
+        "field", ["stripe_success_url", "stripe_cancel_url", "stripe_api_base_url"]
+    )
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "http://shop.example/merci",
+            "javascript:alert(1)",
+            "ftp://shop.example",
+            "https://user:pass@shop.example/merci",
+            "//shop.example/merci",
+            "/relatif",
+            "https://shop.example/" + "a" * 600,
+        ],
+    )
+    def test_unsafe_urls_are_refused(self, field: str, value: str) -> None:
+        with pytest.raises(ValidationError):
+            Settings(**{field: value})  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("value", [0, -1, 11])
+    def test_the_stripe_timeout_is_bounded(self, value: float) -> None:
+        with pytest.raises(ValidationError):
+            Settings(stripe_api_timeout_seconds=value)
+
+
 class TestStripeWebhookSettings:
     def test_the_webhook_secret_is_read_even_while_the_simulated_provider_is_selected(
         self, tmp_path: Path

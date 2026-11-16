@@ -1,4 +1,5 @@
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,6 +9,20 @@ from app.core.stripe_credentials import load_secret_key, load_webhook_secret
 
 DEVELOPMENT_ENVIRONMENTS = frozenset({"dev", "local"})
 MIN_WEBHOOK_SECRET_LENGTH = 32
+MAX_URL_LENGTH = 512
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_safe_url(value: str) -> bool:
+    """Vide (non configurée), ou https sans identifiants (http seulement vers la boucle locale)."""
+    if not value:
+        return True
+    if len(value) > MAX_URL_LENGTH:
+        return False
+    parts = urlsplit(value)
+    if parts.username or parts.password or not parts.hostname:
+        return False
+    return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS)
 
 
 class Settings(BaseSettings):
@@ -38,6 +53,13 @@ class Settings(BaseSettings):
     expiration_batch_size: int = Field(default=100, gt=0, le=1000)
     # Délai simulé du fournisseur interne pour pm_test_timeout : toujours borné (10 s au plus).
     provider_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    # Session Checkout Stripe (WORK-88) : adresses de retour du client (`{order_reference}` remplacé par la
+    # référence de commande; `{CHECKOUT_SESSION_ID}` est réservé à Stripe), adresse de l'API et délai borné.
+    # https obligatoire (http seulement vers la boucle locale), sans identifiants, 512 caractères au plus.
+    stripe_success_url: str = ""
+    stripe_cancel_url: str = ""
+    stripe_api_base_url: str = "https://api.stripe.com"
+    stripe_api_timeout_seconds: float = Field(default=5.0, gt=0, le=10)
 
     db_password: str = ""  # fournie par l'environnement (APP_DB_PASSWORD), jamais versionnee
 
@@ -100,6 +122,13 @@ class Settings(BaseSettings):
             # Lu aussi avec le fournisseur simule : la route du webhook verifie les signatures des que
             # le secret est configure (sans secret, elle refuse tout).
             self._stripe_webhook_secret = load_webhook_secret(self.stripe_webhook_secret_file)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_stripe_urls(self) -> "Settings":
+        for name in ("stripe_success_url", "stripe_cancel_url", "stripe_api_base_url"):
+            if not _is_safe_url(getattr(self, name)):
+                raise ValueError(f"APP_{name.upper()} must be an https URL (http only on loopback)")
         return self
 
     @property

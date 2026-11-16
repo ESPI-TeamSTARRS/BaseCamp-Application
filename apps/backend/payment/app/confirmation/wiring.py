@@ -9,12 +9,12 @@ from app.confirmation.application.confirmation_services import ConfirmationServi
 from app.confirmation.application.record_rejected_confirmation import (
     RecordRejectedConfirmationUseCase,
 )
-from app.confirmation.domain.exceptions.payment_provider_unavailable_error import (
-    PaymentProviderUnavailableError,
-)
 from app.confirmation.domain.interfaces.payment_provider import PaymentProvider
 from app.confirmation.infrastructure.providers.internal_payment_provider import (
     InternalPaymentProvider,
+)
+from app.confirmation.infrastructure.providers.stripe_hosted_payment_provider import (
+    StripeHostedPaymentProvider,
 )
 from app.confirmation.infrastructure.repositories.sqlalchemy_confirmation_unit_of_work import (
     SqlAlchemyConfirmationUnitOfWork,
@@ -26,12 +26,13 @@ from app.core.events.business_event_logger import BusinessEventLogger
 def build_payment_provider(settings: Settings, wait: Callable[[float], None]) -> PaymentProvider:
     """Fournisseur choisi par `APP_PAYMENT_PROVIDER`; le simulé est celui par défaut.
 
-    Le mode `stripe` est refusé tant que son adaptateur n'existe pas : jamais de repli silencieux sur le
-    fournisseur simulé, qui ferait croire à un paiement Stripe.
+    Le mode `stripe` ne confirme jamais de façon synchrone (le client paie chez Stripe, le résultat vient
+    du webhook signé) : jamais de repli silencieux sur le fournisseur simulé, qui ferait croire à un
+    paiement Stripe.
     """
     if settings.payment_provider == "simulated":
         return InternalPaymentProvider(wait, settings.provider_timeout_seconds)
-    raise PaymentProviderUnavailableError("the stripe payment provider is not available yet")
+    return StripeHostedPaymentProvider()
 
 
 def build_confirmation_services(
