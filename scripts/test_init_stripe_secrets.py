@@ -81,3 +81,33 @@ def test_the_webhook_secret_goes_to_its_own_file_and_must_start_with_whsec(tmp_p
     assert (tmp_path / "stripe-webhook-secret").read_text(encoding="utf-8").strip() == WEBHOOK
     assert not (tmp_path / "stripe-secret-key").exists()
     assert BODY not in accepted.stdout + accepted.stderr
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="droits POSIX, hors root")
+def test_a_folder_that_cannot_be_written_is_refused_before_the_key_is_asked(tmp_path: Path) -> None:
+    folder = tmp_path / "ferme"
+    folder.mkdir()
+    folder.chmod(0o555)
+    try:
+        result = _run(folder, TEST_KEY + chr(10))
+    finally:
+        folder.chmod(0o755)
+
+    assert result.returncode != 0
+    assert "install -d" in result.stderr  # dit quoi faire, sans demander la cle
+    assert BODY not in result.stdout + result.stderr
+    assert not (folder / "stripe-secret-key").exists()
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="droits POSIX, hors root")
+def test_a_missing_parent_that_cannot_be_created_is_refused_with_advice(tmp_path: Path) -> None:
+    parent = tmp_path / "ferme"
+    parent.mkdir()
+    parent.chmod(0o555)
+    try:
+        result = _run(parent / "payment", TEST_KEY + chr(10))
+    finally:
+        parent.chmod(0o755)
+
+    assert result.returncode != 0
+    assert "install -d" in result.stderr
