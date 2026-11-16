@@ -13,4 +13,4 @@ export const publisher = {
   host: 'infrastructure du projet pédagogique Basecamp (conteneurs Docker, environnement de démonstration)',
 } as const;
 
-export const legalUpdatedAt = '22 octobre 2026';
+export const legalUpdatedAt = '17 novembre 2026';

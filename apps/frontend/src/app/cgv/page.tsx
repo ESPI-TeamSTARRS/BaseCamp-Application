@@ -35,9 +35,12 @@ export default function CgvPage() {
       </ContentSection>
       <ContentSection title="4. Paiement">
         <p>
-          Le paiement est exigible à la commande. Dans le cadre de ce projet pédagogique, le service de
-          paiement est simulé : aucune donnée bancaire réelle ne doit être saisie et aucun débit n&apos;est
-          effectué.
+          Le paiement est exigible à la commande. Dans le cadre de ce projet pédagogique, il s&apos;agit
+          d&apos;un paiement de démonstration en mode test Stripe : aucune carte réelle ne doit être utilisée
+          et aucun débit réel n&apos;est effectué. Le règlement se fait sur la page sécurisée de Stripe avec
+          une carte de test (par exemple 4242 4242 4242 4242, date de validité future, cryptogramme au choix)
+          ; le vendeur ne voit ni ne conserve les données de carte. Une commande n&apos;est marquée payée
+          qu&apos;après confirmation du paiement par Stripe.
         </p>
       </ContentSection>
       <ContentSection title="5. Livraison">
