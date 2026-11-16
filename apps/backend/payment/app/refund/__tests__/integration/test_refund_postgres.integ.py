@@ -305,7 +305,7 @@ class TestMigrationIsAdditive:
         engine = create_engine(DATABASE_URL)
         try:
             before = _columns(engine)
-            command.upgrade(config, "head")
+            command.upgrade(config, "0007")
             after = _columns(engine)
         finally:
             engine.dispose()
