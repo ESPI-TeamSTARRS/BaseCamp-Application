@@ -88,6 +88,15 @@ Paiement d'une commande créée par `POST /orders` (`{id}` est l'identifiant ren
 | 422 | identifiant mal formé, méthode hors liste, champ en trop, refus métier du fournisseur |
 | 503 | fournisseur arrêté ou saturé, `Retry-After: 5` |
 
+#### Paiement par la page hébergée de Stripe (WORK-91)
+Avec `APP_STRIPE_CHECKOUT_ENABLED=true` (et `APP_PAYMENT_PROVIDER=http`, vers un `payment` en mode `stripe`), le navigateur n'atteint toujours que `shop` : la page de paiement est celle de Stripe, jamais une route de `payment`.
+- **`POST /orders/{id}/pay`** (sans corps, **aucun montant accepté** : le total est celui figé de la commande) crée ou rejoue l'intention comme avant, puis demande à `payment` la session Checkout de cette intention (`POST /payments/intents/{id}/checkout-session`, jeton de service, sans corps) et renvoie en plus `checkout_url` (la page `https://…stripe.com/…`) ; `payment_methods` est alors vide (pas de boutons de test). `201` à la première demande, `200` au rejeu avec la **même** page. L'adresse reçue n'est renvoyée au navigateur que si elle est en `https` sur `stripe.com` ou un de ses sous-domaines, sans identifiants; sinon `503` (jamais une adresse inattendue).
+- **`POST /orders/{id}/pay/confirm`** répond `409 {"detail": "Le paiement se fait sur la page Stripe."}` : la boutique ne marque jamais une commande payée sur la foi du navigateur, ni de l'adresse de retour de Stripe. L'intention n'est pas touchée.
+- **Le statut ne vient que du webhook** : au retour de Stripe, la commande reste `pending_payment` tant que `payment` n'a pas envoyé son webhook signé `payment.succeeded` (voir [Confirmation de paiement par webhook](#confirmation-de-paiement-par-webhook-work-13)), qui est le seul à la passer `paid`. Aucune route de `shop` ne lit l'adresse de retour. Le front sonde le statut avec `POST /orders/lookup` (numéro et email) ou `GET /orders/{id}` pour un compte connecté.
+- **Refus** : commande déjà payée ou expirée `409`, comme en mode simulé, **avant** tout appel à `payment`; intention plus payable chez `payment` `409 {"detail": "Paiement refuse."}`; `payment` arrêté, saturé ou Stripe en erreur `503` (`Paiement indisponible, reessayez plus tard.`, `Retry-After: 5`), sans détail technique ni corps de Stripe. La tentative déjà enregistrée reste en attente : rejouer la demande reprend la même intention (la session est idempotente chez `payment`).
+- **Délai** : la création de la session passe par Stripe, la lecture de cet appel a son propre délai (`APP_PAYMENT_CHECKOUT_READ_TIMEOUT_SECONDS`, 8 s par défaut, 30 au plus); les autres appels gardent leurs 3 s.
+- **Mode simulé inchangé** : sans `APP_STRIPE_CHECKOUT_ENABLED` (défaut) ou avec `APP_PAYMENT_PROVIDER=simulated`, la réponse et la confirmation sont celles décrites plus haut (boutons de test); l'activer avec le fournisseur simulé empêche le démarrage.
+
 Concurrence : la commande est lue avec un verrou de ligne (`SELECT … FOR UPDATE`) pour toute la transaction, appel au fournisseur compris. Deux confirmations parallèles ne paient qu'une fois (l'autre reçoit 409), deux demandes parallèles ne créent qu'une tentative (test sur Postgres).
 
 ## Commandes du compte (WORK-40)
@@ -219,6 +228,8 @@ Variables d'environnement préfixées `APP_` (voir `.env.example` à la racine) 
 | `APP_SMTP_FROM` / `APP_SMTP_TIMEOUT_SECONDS` | `commandes@basecamp.local` / `3` | expéditeur et délai d'envoi |
 | `APP_PAYMENT_PROVIDER` | `http` | fournisseur de paiement : `http` (service `payment`) ou `simulated` (sans réseau ni clé) |
 | `APP_PAYMENT_URL` | `http://payment:8000` | adresse interne de `payment` |
+| `APP_STRIPE_CHECKOUT_ENABLED` | `false` | paiement par la page hébergée de Stripe : `/orders/{id}/pay` renvoie `checkout_url`, la confirmation synchrone est refusée (exige `APP_PAYMENT_PROVIDER=http`) |
+| `APP_PAYMENT_CHECKOUT_READ_TIMEOUT_SECONDS` | `8` | délai de lecture de la création de la session Stripe (0 exclu, 30 au plus) |
 | `APP_AUTH_ISSUE_URL` | `http://auth:8000/internal/token` | où `shop` demande son jeton de service (réseau interne, jamais routé par la passerelle) |
 | `APP_AUTH_CLIENT_ID` / `APP_AUTH_CLIENT_SECRET` | `shop` / vide | identifiants du client de service `shop` (le secret est `AUTH_SERVICE_CLIENT_SECRET_SHOP`, jamais versionné) |
 | `APP_PAYMENT_AUDIENCE` / `APP_PAYMENT_SCOPE` | `payment` / `payments:write` | audience et scope demandés (`shop` n'a pas `refunds:write`) |
@@ -253,8 +264,9 @@ Format et règles communes : [journalisation métier](../development/logging.md)
 | `order.refunded` | success | | ressource `order` (numéro); `amount_refunded_cents` (cumul), `currency`, `source` = `webhook` |
 | `order.paid` | success | | ressource `order` (numéro); `amount_cents`, `currency`, `attempt` (confirmation synchrone) ou `source` = `webhook` (webhook de paiement) |
 | `order.payment_failed` | denied | `provider_declined` | ressource `order` (numéro); `attempt` |
-| `order.payment_rejected` | denied | `order_not_found`, `order_already_paid`, `order_expired`, `no_pending_payment` | ressource `order` (numéro) sauf `order_not_found`; couvre aussi un paiement reçu après expiration |
+| `order.payment_rejected` | denied | `order_not_found`, `order_already_paid`, `order_expired`, `no_pending_payment`, `payment_by_stripe` | ressource `order` (numéro) sauf `order_not_found`; couvre aussi un paiement reçu après expiration |
 | `order.payment_unavailable` | error | `payment_unavailable` | fournisseur arrêté, injoignable ou saturé |
+| `order.checkout_provided` | success | | page de paiement Stripe fournie : ressource `order` (numéro), `amount_cents`, `currency`; jamais l'adresse de la page |
 | `payment.webhook_received` | success | | webhook authentifié et lu : `event_id`, `event_type` |
 | `payment.webhook_rejected` | denied | `webhook_not_configured`, `signature_missing`, `signature_malformed`, `timestamp_out_of_window`, `signature_mismatch`, `payload_not_json`, `payload_not_object`, `event_id_invalid`, `event_type_invalid`, `data_invalid`, `amount_invalid`, `currency_invalid`, `reference_invalid`, `event_id_mismatch` | 401 ou 400; jamais le corps ni la signature reçus |
 | `payment.webhook_replayed` | success | | identifiant déjà reçu : `event_id`, `event_type` |

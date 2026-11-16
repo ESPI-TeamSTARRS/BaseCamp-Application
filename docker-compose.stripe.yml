@@ -3,7 +3,7 @@
 #
 #   sh scripts/init-stripe-secrets.sh          # saisie masquee de la cle sk_test_... dans .secrets/payment/
 #   sh scripts/init-stripe-secrets.sh --webhook  # secret de signature whsec_... (Stripe CLI : stripe listen)
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.stripe.yml docker compose up -d payment
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.stripe.yml docker compose up -d shop payment   # shop : APP_STRIPE_CHECKOUT_ENABLED (WORK-91)
 #
 # La cle est un FICHIER monte en secret Docker (/run/secrets/...), jamais une variable en clair. Une cle
 # absente, illisible ou qui n'est pas `sk_test_...` empeche `payment` de demarrer, sans afficher la valeur.
@@ -11,6 +11,10 @@
 # ICI seulement (jamais en production par defaut). Le fournisseur simule n'est jamais un repli.
 
 services:
+  shop:
+    environment:
+      APP_STRIPE_CHECKOUT_ENABLED: "true"
+
   payment:
     environment:
       APP_PAYMENT_PROVIDER: stripe
