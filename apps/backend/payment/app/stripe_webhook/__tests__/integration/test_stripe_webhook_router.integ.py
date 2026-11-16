@@ -111,9 +111,14 @@ class TestAcceptedWebhook:
         response = env.post()
 
         assert (response.status_code, response.json()) == (200, {"received": True})
-        (verified,) = env.stripe_events()
+        verified, ignored = env.stripe_events()
         assert (verified["event"], verified["outcome"]) == ("stripe.webhook_verified", "success")
         assert verified["attributes"]["body_bytes"] == len(BODY)
+        # Aucune référence d'intention : acquitté, ignoré, rien n'est lu ni écrit (WORK-89).
+        assert (ignored["event"], ignored["reason"]) == (
+            "stripe.event_ignored",
+            "intent_reference_missing",
+        )
 
     def test_the_log_line_follows_the_common_schema_and_holds_nothing_sensitive(
         self, env: Env
@@ -141,9 +146,20 @@ class TestAcceptedWebhook:
     def test_an_event_larger_than_the_global_limit_but_within_the_webhook_one_is_accepted(
         self, env: Env
     ) -> None:
-        body = json.dumps({"id": "evt_big", "padding": "x" * 30_000}).encode()
+        body = json.dumps(
+            {"id": "evt_big", "type": "ping", "data": {"object": {}}, "padding": "x" * 30_000}
+        ).encode()
 
         assert env.post(body).status_code == 200
+
+
+class TestUnreadableEvent:
+    @pytest.mark.parametrize("body", [b"not json", b"{}", b'{"id":"evt_1","type":"x"}'])
+    def test_a_signed_but_unreadable_body_is_a_sanitized_400(self, env: Env, body: bytes) -> None:
+        response = env.post(body)
+
+        assert (response.status_code, response.json()) == (400, {"detail": "Invalid payload."})
+        assert "not json" not in env.log.getvalue()
 
 
 class TestRefusedWebhook:

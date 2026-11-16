@@ -9,6 +9,7 @@ from app.ledger.infrastructure.models import ledger_entry_model  # noqa: F401
 from app.ratelimit.infrastructure.models import rate_limit_window_model  # noqa: F401
 from app.ratelimit.infrastructure.models.base import Base as RateLimitBase
 from app.stripe_checkout.infrastructure.models import checkout_session_model  # noqa: F401
+from app.stripe_webhook.infrastructure.models import stripe_event_model  # noqa: F401
 from app.webhook.infrastructure.models import outbox_event_model  # noqa: F401
 
 target_metadata = [Base.metadata, RateLimitBase.metadata]
