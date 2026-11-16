@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from uuid import UUID
@@ -15,8 +16,14 @@ from app.refund.domain.entities.refund import Refund
 from app.refund.domain.exceptions.intent_not_refundable_error import IntentNotRefundableError
 from app.refund.domain.exceptions.refund_exceeds_captured_error import RefundExceedsCapturedError
 from app.refund.domain.exceptions.refund_key_reused_error import RefundKeyReusedError
+from app.refund.domain.exceptions.stripe_refund_unavailable_error import (
+    StripeRefundUnavailableError,
+)
+from app.refund.domain.interfaces.refund_session import RefundSession
 from app.refund.domain.interfaces.refund_unit_of_work import RefundUnitOfWork
+from app.refund.domain.interfaces.stripe_refund_gateway import StripeRefundGateway
 from app.refund.domain.value_objects.refund_fingerprint import RefundFingerprint
+from app.refund.domain.value_objects.stripe_refund_request import StripeRefundRequest
 from app.webhook.application import webhook_event_names as webhook_names
 from app.webhook.domain.entities.outbox_event import OutboxEvent
 from app.webhook.domain.services.refund_event_factory import RefundEventFactory
@@ -37,7 +44,9 @@ class RefundPaymentUseCase:
         clock: Callable[[], datetime],
         events: BusinessEventLogger,
         event_factory: RefundEventFactory | None = None,
+        stripe_gateway: StripeRefundGateway | None = None,
     ) -> None:
+        self._stripe_gateway = stripe_gateway
         self._unit_of_work = unit_of_work
         self._clock = clock
         self._events = events
@@ -56,6 +65,7 @@ class RefundPaymentUseCase:
             if existing:
                 return self._replay(existing, intent, fingerprint, command)
             self._ensure_refundable(intent, amount, command)
+            stripe_refund_id = self._refund_at_stripe(session, intent, amount, command)
             now = self._clock()
             refunded = intent.refund(amount)
             refund = Refund.issue(
@@ -66,6 +76,7 @@ class RefundPaymentUseCase:
                 command.idempotency_key,
                 fingerprint,
                 now,
+                stripe_refund_id,
             )
             ledger = LedgerTransaction.refund_issued(intent.id, amount, now)
             outbox_event = self._event_factory.build(refunded, refund.id, amount, now)
@@ -96,6 +107,57 @@ class RefundPaymentUseCase:
                 {"requested_cents": amount.cents, "refundable_cents": intent.refundable_cents},
             )
             raise RefundExceedsCapturedError
+
+    def _refund_at_stripe(
+        self,
+        session: RefundSession,
+        intent: PaymentIntent,
+        amount: Amount,
+        command: RefundPaymentCommand,
+    ) -> str | None:
+        """Un paiement Stripe se rembourse chez Stripe AVANT toute écriture : si Stripe refuse, ne répond
+        pas ou n'est pas activé, la transaction est annulée (intention et grand livre inchangés) et la
+        demande, rejouée avec la même clé, retombe sur le même remboursement chez Stripe (idempotence).
+        L'intention reste verrouillée pendant l'appel : deux remboursements ne se croisent pas."""
+        payment = session.get_stripe_payment(intent.id)
+        if payment is None:
+            return None
+        try:
+            if self._stripe_gateway is None or payment.payment_intent_id is None:
+                raise StripeRefundUnavailableError(
+                    "stripe_not_enabled"
+                    if self._stripe_gateway is None
+                    else "stripe_payment_reference_missing"
+                )
+            created = self._stripe_gateway.create_refund(
+                StripeRefundRequest(
+                    intent.id,
+                    payment.payment_intent_id,
+                    amount.cents,
+                    "refund",
+                    self._stripe_key(intent, command),
+                )
+            )
+            if not created.accepted:
+                raise StripeRefundUnavailableError("stripe_refund_not_accepted")
+        except StripeRefundUnavailableError as error:
+            self._events.log(
+                BusinessEvent.error(
+                    names.REFUND_STRIPE_FAILED,
+                    error.reason,
+                    **self._fields(command, str(intent.id), {"amount_cents": amount.cents}),
+                )
+            )
+            raise
+        return created.refund_id
+
+    @staticmethod
+    def _stripe_key(intent: PaymentIntent, command: RefundPaymentCommand) -> str:
+        """Clé d'idempotence côté Stripe : propre à l'intention, à l'appelant et à sa clé."""
+        digest = hashlib.sha256(
+            f"{command.caller}\n{command.idempotency_key}".encode()
+        ).hexdigest()[:32]
+        return f"basecamp-refund-{intent.id}-{digest}"
 
     def _replay(
         self,

@@ -22,6 +22,14 @@ class StripeEventSession(ABC):
         """Identifiant de la session Checkout créée pour l'intention (WORK-88), s'il y en a une."""
 
     @abstractmethod
+    def save_payment_reference(self, intent_id: UUID, stripe_payment_intent_id: str) -> None:
+        """Retient le paiement Stripe de l'intention (pour le rembourser plus tard)."""
+
+    @abstractmethod
+    def has_stripe_refund(self, stripe_refund_id: str) -> bool:
+        """Ce remboursement Stripe a-t-il été émis par nous (et enregistré) ?"""
+
+    @abstractmethod
     def record_event(self, event: ProcessedStripeEvent) -> None:
         """Lève DuplicateStripeEventError si l'identifiant d'événement est déjà enregistré."""
 

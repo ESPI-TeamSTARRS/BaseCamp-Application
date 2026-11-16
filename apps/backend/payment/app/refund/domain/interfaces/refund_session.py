@@ -4,6 +4,7 @@ from uuid import UUID
 from app.intent.domain.entities.payment_intent import PaymentIntent
 from app.ledger.domain.entities.ledger_transaction import LedgerTransaction
 from app.refund.domain.entities.refund import Refund
+from app.refund.domain.value_objects.stripe_payment_reference import StripePaymentReference
 from app.webhook.domain.entities.outbox_event import OutboxEvent
 
 
@@ -16,6 +17,10 @@ class RefundSession(ABC):
 
     @abstractmethod
     def find_refund(self, caller: str, key: str) -> Refund | None: ...
+
+    @abstractmethod
+    def get_stripe_payment(self, intent_id: UUID) -> StripePaymentReference | None:
+        """La référence Stripe de l'intention, ou None si elle n'a pas été payée par Stripe."""
 
     @abstractmethod
     def save(

@@ -9,6 +9,7 @@ from app.refund.application.refund_payment import RefundPaymentUseCase
 from app.refund.infrastructure.repositories.sqlalchemy_refund_unit_of_work import (
     SqlAlchemyRefundUnitOfWork,
 )
+from app.refund.wiring import build_stripe_refund_gateway
 from app.webhook.application.deliver_next_event import DeliverNextEventUseCase
 from app.webhook.application.requeue_dead_events import RequeueDeadEventsUseCase
 from app.webhook.domain.services.webhook_signer import WebhookSigner
@@ -36,7 +37,10 @@ def build_deliver_use_case(
         events,
         RefundExpiredOrderUseCase(
             RefundPaymentUseCase(
-                SqlAlchemyRefundUnitOfWork(engine), lambda: datetime.now(UTC), events
+                SqlAlchemyRefundUnitOfWork(engine),
+                lambda: datetime.now(UTC),
+                events,
+                stripe_gateway=build_stripe_refund_gateway(settings),
             )
         ),
     )

@@ -9,6 +9,7 @@ from app.ledger.domain.entities.ledger_transaction import LedgerTransaction
 from app.refund.domain.entities.refund import Refund
 from app.refund.domain.interfaces.refund_session import RefundSession
 from app.refund.domain.interfaces.refund_unit_of_work import RefundUnitOfWork
+from app.refund.domain.value_objects.stripe_payment_reference import StripePaymentReference
 from app.webhook.domain.entities.outbox_event import OutboxEvent
 
 
@@ -18,6 +19,7 @@ class InMemoryStore:
         self.refunds: dict[tuple[str, str], Refund] = {}
         self.ledger: list[LedgerTransaction] = []
         self.outbox: list[OutboxEvent] = []
+        self.stripe_payments: dict[UUID, StripePaymentReference] = {}
 
 
 class InMemorySession(RefundSession):
@@ -29,6 +31,9 @@ class InMemorySession(RefundSession):
 
     def find_refund(self, caller: str, key: str) -> Refund | None:
         return self._store.refunds.get((caller, key))
+
+    def get_stripe_payment(self, intent_id: UUID) -> StripePaymentReference | None:
+        return self._store.stripe_payments.get(intent_id)
 
     def save(
         self,

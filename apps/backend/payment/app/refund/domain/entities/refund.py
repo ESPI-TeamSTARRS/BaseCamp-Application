@@ -21,6 +21,7 @@ class Refund:
     key: str
     request_hash: str
     created_at: datetime
+    stripe_refund_id: str | None = None
 
     @classmethod
     def issue(
@@ -32,5 +33,16 @@ class Refund:
         key: str,
         request_hash: str,
         now: datetime,
+        stripe_refund_id: str | None = None,
     ) -> "Refund":
-        return cls(uuid4(), intent_id, amount, amount_refunded, caller, key, request_hash, now)
+        return cls(
+            uuid4(),
+            intent_id,
+            amount,
+            amount_refunded,
+            caller,
+            key,
+            request_hash,
+            now,
+            stripe_refund_id,
+        )

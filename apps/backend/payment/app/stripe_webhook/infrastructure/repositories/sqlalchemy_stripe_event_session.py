@@ -9,6 +9,7 @@ from app.intent.infrastructure.mappers.payment_intent_mapper import PaymentInten
 from app.intent.infrastructure.models.payment_intent_model import PaymentIntentModel
 from app.ledger.domain.entities.ledger_transaction import LedgerTransaction
 from app.ledger.domain.interfaces.ledger_repository import LedgerRepository
+from app.refund.infrastructure.models.refund_model import RefundModel
 from app.stripe_checkout.infrastructure.models.checkout_session_model import CheckoutSessionModel
 from app.stripe_webhook.domain.entities.processed_stripe_event import ProcessedStripeEvent
 from app.stripe_webhook.domain.errors.duplicate_stripe_event_error import (
@@ -40,6 +41,19 @@ class SqlAlchemyStripeEventSession(StripeEventSession):
     def get_checkout_session_id(self, intent_id: UUID) -> str | None:
         model = self._session.get(CheckoutSessionModel, intent_id)
         return model.session_id if model else None
+
+    def save_payment_reference(self, intent_id: UUID, stripe_payment_intent_id: str) -> None:
+        model = self._session.get(CheckoutSessionModel, intent_id)
+        if model is not None:
+            model.stripe_payment_intent_id = stripe_payment_intent_id
+
+    def has_stripe_refund(self, stripe_refund_id: str) -> bool:
+        return (
+            self._session.scalar(
+                select(RefundModel.id).where(RefundModel.stripe_refund_id == stripe_refund_id)
+            )
+            is not None
+        )
 
     def record_event(self, event: ProcessedStripeEvent) -> None:
         self._session.add(
