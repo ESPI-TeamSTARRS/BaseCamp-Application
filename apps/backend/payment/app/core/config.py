@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     payment_provider: Literal["simulated", "stripe"] = "simulated"
     stripe_secret_key_file: str = ""
     stripe_webhook_secret_file: str = ""
+    # Webhook entrant de Stripe : fenetre de tolerance de l'horodatage signe et plafond de corps propre a
+    # cette route (les evenements pesent quelques Kio; le plafond global de 16 Kio reste celui des autres).
+    stripe_webhook_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
+    stripe_webhook_max_body_bytes: int = Field(default=65_536, ge=1024, le=1_048_576)
     _stripe_secret_key: SecretStr | None = PrivateAttr(default=None)
     _stripe_webhook_secret: SecretStr | None = PrivateAttr(default=None)
 
@@ -92,8 +96,10 @@ class Settings(BaseSettings):
     def _load_stripe_credentials(self) -> "Settings":
         if self.payment_provider == "stripe":
             self._stripe_secret_key = load_secret_key(self.stripe_secret_key_file)
-            if self.stripe_webhook_secret_file:
-                self._stripe_webhook_secret = load_webhook_secret(self.stripe_webhook_secret_file)
+        if self.stripe_webhook_secret_file:
+            # Lu aussi avec le fournisseur simule : la route du webhook verifie les signatures des que
+            # le secret est configure (sans secret, elle refuse tout).
+            self._stripe_webhook_secret = load_webhook_secret(self.stripe_webhook_secret_file)
         return self
 
     @property

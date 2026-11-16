@@ -23,7 +23,7 @@ case "$published" in *"->"*) fail "payment ou sa base est publie sur l'hote : $p
 # 2. shop atteint payment (liveness et readiness)
 [ "$(docker compose exec -T shop python -c "$PROBE_READY")" = "200" ] || fail "shop n'atteint pas payment"
 
-# 3. les autres services ne l'atteignent pas (front, traefik, mailpit : reseau app seulement)
+# 3. les autres services ne l atteignent pas (front, mailpit : reseau app seulement; traefik ne le voit que par payment-hook)
 docker compose exec -T front wget -q -T 3 -O /dev/null http://payment:8000/health \
   && fail "front atteint payment"
 docker compose exec -T front wget -q -T 3 -O /dev/null http://payment:8000/metrics \

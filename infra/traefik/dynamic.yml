@@ -88,6 +88,16 @@ http:
       middlewares: [body-limit, security-headers, strip-api-auth]
       service: auth
       priority: 100
+    stripe-webhook:
+      # SEULE route de payment servie par la passerelle (WORK-87) : le webhook de Stripe. Chemin exact, tous
+      # les verbes (payment repond 405 aux autres), limite de debit puis de corps AVANT que le service lise
+      # quoi que ce soit; la signature est verifiee par payment avant tout effet. Le prefixe /api est retire :
+      # payment recoit /stripe/webhook. Aucun autre chemin (/health, /metrics, /payments...) n'est route.
+      rule: "Path(`/api/stripe/webhook`)"
+      entryPoints: [web]
+      middlewares: [stripe-webhook-rate-limit, stripe-webhook-body-limit, security-headers, strip-api]
+      service: payment
+      priority: 300
     front:
       rule: "PathPrefix(`/`)"
       entryPoints: [web]
@@ -123,6 +133,26 @@ http:
     strip-api-auth:
       stripPrefix:
         prefixes: ["/api/auth"]
+
+    strip-api:
+      # Utilise par le seul routeur stripe-webhook : /api/stripe/webhook -> /stripe/webhook.
+      stripPrefix:
+        prefixes: ["/api"]
+
+    stripe-webhook-body-limit:
+      # Les evenements Stripe pesent quelques Kio : 64 Kio au plus -> 413 au-dela, avant payment
+      # (qui applique la meme limite a cette route).
+      buffering:
+        maxRequestBodyBytes: 65536 # 64 Kio
+        memRequestBodyBytes: 65536 # tout en memoire : le conteneur est en lecture seule
+
+    stripe-webhook-rate-limit:
+      # Cle = adresse reelle de la connexion (comme orders-rate-limit). Stripe envoie depuis un petit
+      # ensemble d'adresses et reessaie par vagues : large (600/min, rafale 100), mais borne.
+      rateLimit:
+        average: 600
+        period: 1m
+        burst: 100
 
     orders-rate-limit:
       # Cle = adresse reelle de la connexion (RemoteAddr). Pas d'ipStrategy.depth : un
@@ -227,3 +257,9 @@ http:
         serversTransport: default
         servers:
           - url: "http://backoffice:3000"
+    payment:
+      # Joint par le reseau dedie payment-hook (traefik et payment seulement), jamais par `app`.
+      loadBalancer:
+        serversTransport: default
+        servers:
+          - url: "http://payment:8000"

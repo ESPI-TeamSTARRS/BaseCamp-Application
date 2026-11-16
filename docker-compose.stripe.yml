@@ -2,6 +2,7 @@
 # Elle n'est jamais utilisee par la CI ni par defaut : le fournisseur simule reste celui de la pile.
 #
 #   sh scripts/init-stripe-secrets.sh          # saisie masquee de la cle sk_test_... dans .secrets/payment/
+#   sh scripts/init-stripe-secrets.sh --webhook  # secret de signature whsec_... (Stripe CLI : stripe listen)
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.stripe.yml docker compose up -d payment
 #
 # La cle est un FICHIER monte en secret Docker (/run/secrets/...), jamais une variable en clair. Une cle
@@ -14,8 +15,11 @@ services:
     environment:
       APP_PAYMENT_PROVIDER: stripe
       APP_STRIPE_SECRET_KEY_FILE: /run/secrets/payment_stripe_secret_key
-    secrets: [payment_stripe_secret_key]
+      APP_STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/payment_stripe_webhook_secret
+    secrets: [payment_stripe_secret_key, payment_stripe_webhook_secret]
 
 secrets:
   payment_stripe_secret_key:
     file: ${STRIPE_SECRET_KEY_FILE:-./.secrets/payment/stripe-secret-key}
+  payment_stripe_webhook_secret:
+    file: ${STRIPE_WEBHOOK_SECRET_FILE:-./.secrets/payment/stripe-webhook-secret}

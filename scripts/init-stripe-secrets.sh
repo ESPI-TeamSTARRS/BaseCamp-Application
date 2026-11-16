@@ -35,6 +35,14 @@ if [ -e "$FILE" ] && [ "$FORCE" != 1 ]; then
   exit 1
 fi
 
+# Le dossier doit etre accessible en ecriture AVANT de demander la cle : sinon la saisie serait perdue.
+if ! mkdir -p "$DIR" 2>/dev/null || [ ! -d "$DIR" ] || [ ! -w "$DIR" ]; then
+  echo "Le dossier $DIR n'est pas accessible en ecriture pour $(id -un)." >&2
+  echo "Le creer ou le reparer avec le bon proprietaire (puis relancer) :" >&2
+  echo "  sudo install -d -o $(id -un) -g $(id -gn) -m 750 $DIR" >&2
+  exit 1
+fi
+
 if [ -t 0 ]; then
   printf 'Collez %s puis Entree (rien ne s affiche) : ' "$LABEL" >&2
   stty -echo

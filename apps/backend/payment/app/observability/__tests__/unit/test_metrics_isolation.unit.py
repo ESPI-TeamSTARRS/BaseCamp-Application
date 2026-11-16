@@ -22,21 +22,26 @@ def _active_lines(text: str) -> list[str]:
 
 
 class TestGatewayDoesNotRoutePayment:
-    def test_no_traefik_router_or_service_points_to_payment(self) -> None:
-        active = "\n".join(_active_lines(GATEWAY))
+    def test_only_the_stripe_webhook_router_points_to_payment(self) -> None:
+        active = "\n".join(_active_lines(GATEWAY)) + "\n"
 
         # La passerelle exclut `/api/auth/metrics` du routeur auth : une exclusion, pas une route.
         routed = active.replace("!PathPrefix(`/api/auth/metrics`)", "")
+        reaching_payment = re.findall(
+            r"^    ([a-z0-9-]+):\n(?:      .*\n)*?      service: payment\b", active, re.MULTILINE
+        )
 
-        assert "payment" not in active
+        assert reaching_payment == ["stripe-webhook"]  # WORK-87 : la seule route de payment
+        assert "/api/payment" not in active
         assert "/metrics" not in routed
 
-    def test_payment_is_not_on_the_network_traefik_uses(self) -> None:
+    def test_payment_is_not_on_the_public_or_application_networks(self) -> None:
         networks = re.search(r"networks: \[(.*?)\]", _service_block("payment"))
 
         assert networks
         listed = {name.strip() for name in networks.group(1).split(",")}
-        assert listed == {"payment-net", "payment-data"}
+        # payment-hook : reseau dedie a la seule route du webhook de Stripe (traefik et payment).
+        assert listed == {"payment-net", "payment-data", "payment-hook"}
         assert "app" not in listed
         assert "edge" not in listed
 
