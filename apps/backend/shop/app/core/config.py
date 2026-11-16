@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     payment_renew_margin_seconds: float = 30.0
     payment_connect_timeout_seconds: float = 1.0
     payment_read_timeout_seconds: float = 3.0
+    # Paiement par la page hébergée de Stripe (WORK-91) : `/orders/{id}/pay` renvoie alors `checkout_url` et la
+    # confirmation synchrone est refusée (le statut ne vient que du webhook signé). Exige `payment_provider=http`
+    # et un service `payment` en mode `stripe`. La création de la session passe par Stripe : délai de lecture plus long.
+    stripe_checkout_enabled: bool = False
+    payment_checkout_read_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 
     # Webhook signé de `payment` (WORK-13) : secrets partagés via l'environnement (jamais versionnés).
     # Sans secret, tout webhook est refusé; `previous` sert à la rotation (les deux sont acceptés).
@@ -93,6 +98,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "APP_N8N_MAIL_URL and APP_N8N_MAIL_SECRET are required with APP_MAIL_TRANSPORT=n8n"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _stripe_checkout_needs_the_payment_service(self) -> "Settings":
+        if self.stripe_checkout_enabled and self.payment_provider != "http":
+            raise ValueError("APP_STRIPE_CHECKOUT_ENABLED requires APP_PAYMENT_PROVIDER=http")
         return self
 
     @model_validator(mode="after")

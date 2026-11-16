@@ -5,6 +5,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.pay.domain.entities.checkout_session_ref import CheckoutSessionRef
 from app.pay.domain.entities.payment_intent_ref import PaymentIntentRef
 from app.pay.domain.exceptions.payment_rejected_error import PaymentRejectedError
 from app.pay.domain.interfaces.payment_gateway import PaymentGateway
@@ -51,6 +52,9 @@ class SimulatedPaymentGateway(PaymentGateway):
                     raise PaymentRejectedError(conflict=True) from None  # référence déjà utilisée
                 return self._replay(winner, order_reference, amount_cents)
             return self._to_ref(row)
+
+    def create_checkout_session(self, intent_id: str) -> CheckoutSessionRef:
+        raise PaymentRejectedError(conflict=False)  # pas de Stripe avec le fournisseur simulé
 
     def get_intent(self, intent_id: str) -> PaymentIntentRef:
         with Session(self._engine) as session:

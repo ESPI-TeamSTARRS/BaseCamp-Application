@@ -87,3 +87,11 @@ class TestSimulatedPaymentGateway:
             gateway.get_intent("inconnue")
         with pytest.raises(PaymentRejectedError):
             gateway.confirm_intent(intent.id, "4242424242424242", "c-00000001")
+
+    def test_there_is_no_stripe_page_with_the_simulated_provider(
+        self, gateway: SimulatedPaymentGateway
+    ) -> None:
+        intent = gateway.create_intent("BC-1", 4490, "EUR", "order-BC-1-1")
+
+        with pytest.raises(PaymentRejectedError):
+            gateway.create_checkout_session(intent.id)
