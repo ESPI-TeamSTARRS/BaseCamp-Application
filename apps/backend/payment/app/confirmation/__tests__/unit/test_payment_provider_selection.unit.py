@@ -2,14 +2,19 @@ from pathlib import Path
 
 import pytest
 
-from app.confirmation.domain.exceptions.payment_provider_unavailable_error import (
-    PaymentProviderUnavailableError,
+from app.confirmation.domain.enums.payment_method import PaymentMethod
+from app.confirmation.domain.exceptions.intent_not_confirmable_error import (
+    IntentNotConfirmableError,
 )
 from app.confirmation.infrastructure.providers.internal_payment_provider import (
     InternalPaymentProvider,
 )
+from app.confirmation.infrastructure.providers.stripe_hosted_payment_provider import (
+    StripeHostedPaymentProvider,
+)
 from app.confirmation.wiring import build_payment_provider
 from app.core.config import Settings
+from app.intent.domain.value_objects.amount import Amount
 
 TEST_KEY = "sk_" + "test_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
 
@@ -24,13 +29,15 @@ class TestBuildPaymentProvider:
 
         assert isinstance(provider, InternalPaymentProvider)
 
-    def test_the_stripe_provider_is_refused_until_its_adapter_exists(self, tmp_path: Path) -> None:
+    def test_the_stripe_provider_never_authorizes_a_synchronous_payment(
+        self, tmp_path: Path
+    ) -> None:
         key_file = tmp_path / "key"
         key_file.write_text(TEST_KEY, encoding="utf-8")
         settings = Settings(payment_provider="stripe", stripe_secret_key_file=str(key_file))
 
-        with pytest.raises(PaymentProviderUnavailableError) as error:
-            build_payment_provider(settings, _never_wait)
+        provider = build_payment_provider(settings, _never_wait)
 
-        assert "stripe" in str(error.value)
-        assert TEST_KEY not in str(error.value)
+        assert isinstance(provider, StripeHostedPaymentProvider)
+        with pytest.raises(IntentNotConfirmableError):
+            provider.authorize(PaymentMethod.SUCCESS, Amount(4990))

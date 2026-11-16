@@ -35,6 +35,10 @@ from app.ratelimit.wiring import build_rate_limiter
 from app.refund.error_handlers import register_refund_error_handlers
 from app.refund.presentation.router import router as refund_router
 from app.refund.wiring import build_refund_services
+from app.stripe_checkout.domain.interfaces.stripe_checkout_gateway import StripeCheckoutGateway
+from app.stripe_checkout.error_handlers import register_stripe_checkout_error_handlers
+from app.stripe_checkout.presentation.router import router as stripe_checkout_router
+from app.stripe_checkout.wiring import build_stripe_checkout_gateway, build_stripe_checkout_services
 
 
 def create_app(
@@ -42,6 +46,7 @@ def create_app(
     engine: Engine | None = None,
     events: BusinessEventLogger | None = None,
     jwks_source: JwksSource | None = None,
+    checkout_gateway: StripeCheckoutGateway | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     engine = engine or build_engine(settings)
@@ -57,6 +62,9 @@ def create_app(
     application.state.confirmation_services = build_confirmation_services(engine, settings, events)
     application.state.cancellation_services = build_cancellation_services(engine, events)
     application.state.refund_services = build_refund_services(engine, events)
+    application.state.stripe_checkout_services = build_stripe_checkout_services(
+        engine, settings, events, checkout_gateway or build_stripe_checkout_gateway(settings)
+    )
     application.state.rate_limiter = build_rate_limiter(engine, settings, events)
     observability = build_observability_services(engine, settings, events)
     application.state.observability_services = observability
@@ -66,10 +74,12 @@ def create_app(
     application.include_router(confirmation_router)
     application.include_router(cancellation_router)
     application.include_router(refund_router)
+    application.include_router(stripe_checkout_router)
     register_error_handlers(application, events)
     register_confirmation_error_handlers(application)
     register_cancellation_error_handlers(application)
     register_refund_error_handlers(application)
+    register_stripe_checkout_error_handlers(application)
     register_rate_limit_error_handlers(application)
     register_database_unavailable_handler(application, events)
     register_unhandled_error_handler(application, events)
