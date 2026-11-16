@@ -35,7 +35,7 @@ services:
       BACKOFFICE_HOST: ${BACKOFFICE_HOST:-mercure.localhost}
     volumes:
       - ./infra/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-    networks: [edge, app]
+    networks: [edge, app, payment-hook]
     read_only: true
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -200,7 +200,7 @@ services:
     build: ./apps/backend/payment
     image: ${COMPOSE_PROJECT_NAME:-basecamp}-payment
     environment: *payment-env
-    networks: [payment-net, payment-data]
+    networks: [payment-net, payment-data, payment-hook]
     read_only: true
     # Ressources bornees par instance (compatible avec --scale payment=2) : un abus ne prive pas le reste.
     mem_limit: 256m
@@ -425,6 +425,9 @@ networks:
   data:
     internal: true
   payment-net:
+    internal: true
+  # Reseau dedie a la SEULE route /api/stripe/webhook (WORK-87) : traefik et payment, rien d'autre.
+  payment-hook:
     internal: true
   payment-data:
     internal: true
