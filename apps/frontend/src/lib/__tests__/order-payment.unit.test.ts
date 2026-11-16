@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   confirmPayment,
   isOrderId,
+  isStripeCheckoutUrl,
   loadPaymentView,
   requestPayment,
   type RequestPaymentResult,
@@ -44,6 +45,7 @@ describe('requestPayment', () => {
         orderNumber: 'BC-ABCDEFGHJK',
         amountEur: 44.9,
         methods: ['pm_test_success', 'pm_test_declined'],
+        checkoutUrl: null,
       },
     });
     const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -143,6 +145,7 @@ describe('loadPaymentView', () => {
     orderNumber: 'BC-ABCDEFGHJK',
     amountEur: 44.9,
     methods: ['pm_test_success'],
+    checkoutUrl: null,
   };
   const viewFor = (result: RequestPaymentResult) =>
     loadPaymentView(ORDER_ID, vi.fn().mockResolvedValue(result));
@@ -179,5 +182,47 @@ describe('loadPaymentView', () => {
     const view = await loadPaymentView(ORDER_ID, request);
 
     expect(view).toMatchObject({ step: 'error', retry: true });
+  });
+});
+
+describe('mode Stripe : adresse de la page de paiement', () => {
+  const stripeIntent = {
+    ...apiIntent,
+    payment_methods: [],
+    checkout_url: 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3',
+  };
+
+  it('renvoie l’adresse de la page Stripe et aucun bouton de test', async () => {
+    const result = await requestPayment(ORDER_ID, reply(201, stripeIntent));
+
+    expect(result).toMatchObject({
+      ok: true,
+      payment: {
+        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3',
+        methods: [],
+        amountEur: 44.9,
+      },
+    });
+  });
+
+  it.each([
+    'http://checkout.stripe.com/c/pay/x',
+    'https://evil.example/c/pay/x',
+    'https://checkout.stripe.com.evil.io/x',
+    'https://user:pass@checkout.stripe.com/x',
+    'javascript:alert(1)',
+    'pas une adresse',
+    '',
+  ])('refuse la destination %j : le navigateur n’est jamais envoyé ailleurs', async (url) => {
+    const result = await requestPayment(ORDER_ID, reply(201, { ...stripeIntent, checkout_url: url }));
+
+    expect(result).toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('accepte stripe.com et ses sous-domaines en https seulement', () => {
+    expect(isStripeCheckoutUrl('https://checkout.stripe.com/x')).toBe(true);
+    expect(isStripeCheckoutUrl('https://stripe.com/x')).toBe(true);
+    expect(isStripeCheckoutUrl('https://notstripe.com/x')).toBe(false);
+    expect(isStripeCheckoutUrl('http://stripe.com/x')).toBe(false);
   });
 });
