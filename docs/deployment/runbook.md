@@ -104,6 +104,16 @@ Si l'ordre n'est pas respecté, la production n'est pas touchée : Compose refus
 - **Relancer des événements en échec** (état `dead`) : `docker compose -p basecamp-prod -f /opt/basecamp/repo/deploy/docker-compose.prod.yml --env-file /opt/basecamp/state/compose.env run --rm --no-deps payment-worker python -m app.webhook.presentation.requeue_main --all` (ou `--event-id <uuid>`).
 - **Vérifier le secret sans l'afficher** : `sudo awk -F= '/^PAYMENT_WEBHOOK_SECRET=/{print $1, length($2)}' /opt/basecamp/.env` doit afficher 48 ; de même pour `AUTH_SERVICE_CLIENT_SECRET_SHOP`.
 
+### Clés Stripe de test sur la VM (WORK-86)
+Le mode `stripe` n'est **pas activé en production** par ce ticket (le déploiement ne référence aucun secret Stripe et l'adaptateur arrive avec WORK-88) : poser la clé ne change rien tant que ce n'est pas branché. On peut déjà préparer les fichiers.
+- **Où** : le dossier `/opt/basecamp/secrets/payment/` (propriétaire `basecamp`, droits 750, comme `secrets/auth/`), avec deux fichiers : `stripe-secret-key` (clé secrète de test `sk_test_…`) et `stripe-webhook-secret` (secret de signature `whsec_…`, **utile seulement à partir de WORK-87**). Droits des fichiers : **644** (lisibles par l'utilisateur non privilégié du conteneur, dossier parent fermé aux autres).
+- **Commande à saisir soi-même sur la VM** (la valeur est tapée ou collée sans écho : elle n'apparaît ni dans l'historique du shell, ni à l'écran, ni dans un journal) :
+  `sudo -u basecamp env STRIPE_SECRETS_DIR=/opt/basecamp/secrets/payment sh /opt/basecamp/repo/scripts/init-stripe-secrets.sh`
+  puis, pour le secret de webhook : la même commande avec `--webhook`. Le script refuse une clé qui n'est pas `sk_test_…` (ou `whsec_…`), refuse d'écraser un fichier existant sans `--force` et ne répète jamais la valeur.
+- **Vérifier sans afficher** : `sudo ls -l /opt/basecamp/secrets/payment/` (droits et taille, pas le contenu) et `sudo awk '{print substr($0,1,8), length($0)}' /opt/basecamp/secrets/payment/stripe-secret-key` doit afficher `sk_test_` suivi de la longueur (une centaine de caractères).
+- **Prise en compte** : `payment` lit les fichiers **au démarrage** : après un changement de clé, il faut recréer le conteneur `payment` (un déploiement `--force` ou `docker compose … up -d --force-recreate payment`). Rien ne se recharge à chaud. Pour l'instant (WORK-86) aucun redémarrage n'est nécessaire : aucun service ne lit ces fichiers en production.
+- **Rotation et fuite** : générer une nouvelle clé dans le tableau de bord Stripe, relancer la commande avec `--force`, recréer `payment`, puis révoquer l'ancienne. Une clé collée par erreur dans un chat, un ticket ou un fichier du dépôt est considérée comme compromise : la révoquer tout de suite.
+
 ### Jetons d'auth pour payment (WORK-41)
 `payment` n'a plus de jeton statique : il vérifie les jetons signés par `auth`, et `shop` en demande un à `auth` avant d'appeler `payment`.
 - **Variables** : ne rien retirer au déploiement. `PAYMENT_SERVICE_TOKEN_SHOP` reste dans le `.env` de la VM : elle n'est plus lue par aucun service, donc inoffensive, et le retour arrière reste un simple retour d'images. Elle sera retirée après la démo. `shop` réutilise `AUTH_SERVICE_CLIENT_SECRET_SHOP`, déjà présent pour `auth-bootstrap` : rien à ajouter.

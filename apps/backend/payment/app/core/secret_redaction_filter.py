@@ -7,6 +7,8 @@ MIN_SECRET_LENGTH = 8  # en dessous, un « secret » masquerait des mots courant
 
 # Jeton JWT (3 segments base64url, en-tete `eyJ`) : les jetons d'`auth` ne sont plus des secrets connus.
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
+# Cles Stripe (secrete, restreinte, publiable, secret de webhook) : jamais dans un journal, connues ou non.
+_STRIPE_KEY = re.compile(r"\b(?:(?:sk|rk|pk)_(?:test|live)_|whsec_)[A-Za-z0-9]{16,}")
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 # 13 à 19 chiffres, séparés ou non par des espaces ou des tirets : numéros de carte.
 _CARD = re.compile(r"(?<![\w-])(?:\d[ -]?){12,18}\d(?![\w-])")
@@ -49,6 +51,7 @@ class SecretRedactionFilter(logging.Filter):
         for secret in self._secrets:
             text = text.replace(secret, REDACTED)
         text = _JWT.sub(REDACTED, text)
+        text = _STRIPE_KEY.sub(REDACTED, text)
         text = _BEARER.sub(f"Bearer {REDACTED}", text)
         text = _KEY_VALUE.sub(lambda match: f"{match.group(1)}{REDACTED}", text)
         return _CARD.sub(REDACTED, text)

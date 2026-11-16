@@ -1,6 +1,10 @@
-from pydantic import Field, SecretStr, model_validator
+from typing import Literal
+
+from pydantic import Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+from app.core.stripe_credentials import load_secret_key, load_webhook_secret
 
 DEVELOPMENT_ENVIRONMENTS = frozenset({"dev", "local"})
 MIN_WEBHOOK_SECRET_LENGTH = 32
@@ -36,6 +40,15 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
 
     db_password: str = ""  # fournie par l'environnement (APP_DB_PASSWORD), jamais versionnee
+
+    # Fournisseur de paiement : `simulated` (interne, par defaut, sans reseau ni cle) ou `stripe` (mode
+    # test seulement). En mode `stripe`, les cles viennent de FICHIERS (secrets Docker), jamais de
+    # variables en clair : une cle absente, illisible ou qui n'est pas `sk_test_...` empeche le demarrage.
+    payment_provider: Literal["simulated", "stripe"] = "simulated"
+    stripe_secret_key_file: str = ""
+    stripe_webhook_secret_file: str = ""
+    _stripe_secret_key: SecretStr | None = PrivateAttr(default=None)
+    _stripe_webhook_secret: SecretStr | None = PrivateAttr(default=None)
 
     # Pool de connexions borne : taille totale max = pool + debordement, par instance.
     db_pool_size: int = 5
@@ -74,6 +87,24 @@ class Settings(BaseSettings):
     webhook_backoff_max_seconds: float = Field(default=300.0, gt=0, le=86_400)
     webhook_timeout_seconds: float = Field(default=3.0, gt=0, le=10)
     webhook_poll_interval_seconds: float = Field(default=1.0, gt=0, le=60)
+
+    @model_validator(mode="after")
+    def _load_stripe_credentials(self) -> "Settings":
+        if self.payment_provider == "stripe":
+            self._stripe_secret_key = load_secret_key(self.stripe_secret_key_file)
+            if self.stripe_webhook_secret_file:
+                self._stripe_webhook_secret = load_webhook_secret(self.stripe_webhook_secret_file)
+        return self
+
+    @property
+    def stripe_secret_key(self) -> SecretStr | None:
+        """Clé secrète de test (mode `stripe` seulement), jamais affichée par repr ou str."""
+        return self._stripe_secret_key
+
+    @property
+    def stripe_webhook_secret(self) -> SecretStr | None:
+        """Secret de signature des webhooks Stripe, s'il est configuré."""
+        return self._stripe_webhook_secret
 
     @model_validator(mode="after")
     def _validate_webhook(self) -> "Settings":

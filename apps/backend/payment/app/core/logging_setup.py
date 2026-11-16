@@ -13,7 +13,14 @@ def install_log_redaction(settings: Settings) -> None:
     ce filtre couvre le reste, par exemple la pile d'une exception inattendue. Idempotent.
     """
     # Plus de jeton statique : les jetons d'`auth` sont signes, de courte duree, jamais journalises.
-    redaction = SecretRedactionFilter([settings.db_password, *settings.webhook_secrets])
+    stripe = (settings.stripe_secret_key, settings.stripe_webhook_secret)
+    redaction = SecretRedactionFilter(
+        [
+            settings.db_password,
+            *settings.webhook_secrets,
+            *(secret.get_secret_value() for secret in stripe if secret is not None),
+        ]
+    )
     for name in _FRAMEWORK_LOGGERS:
         for handler in logging.getLogger(name).handlers:
             for old in [f for f in handler.filters if isinstance(f, SecretRedactionFilter)]:
