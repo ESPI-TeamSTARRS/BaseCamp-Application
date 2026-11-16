@@ -24,6 +24,8 @@ class StripeCredentialsError(ValueError):
 def _read(path: str) -> str:
     try:
         file = Path(path)
+        if not file.is_file():
+            raise StripeCredentialsError("the Stripe secret file is unreadable")
         if file.stat().st_size > MAX_SECRET_FILE_BYTES:
             raise StripeCredentialsError("the Stripe secret file is too large")
         return file.read_text(encoding="utf-8").strip()
