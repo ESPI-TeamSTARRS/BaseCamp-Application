@@ -14,6 +14,9 @@ COPY alembic ./alembic
 RUN uv sync --frozen --no-dev
 
 FROM python:3.13-slim AS runtime
+# zlib1g : correctif de securite Debian (CVE-2026-85091) pas encore dans l'image de base amont ; sans effet
+# des que la base le contient.
+RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade zlib1g && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system app && useradd --system --gid app --home /app app
 # pip (et ses bibliotheques embarquees) est inutile a l'execution : l'app tourne depuis /app/.venv.
 RUN python -m pip uninstall -y pip
