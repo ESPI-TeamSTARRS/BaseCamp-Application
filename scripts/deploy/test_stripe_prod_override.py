@@ -76,7 +76,8 @@ class TestOverride:
             ipaddress.ip_network("192.168.0.0/16"),  # VPN et LAN de l'hôte
             ipaddress.ip_network("172.16.0.0/12"),  # réserve de Docker
             ipaddress.ip_network("10.250.0.0/24"),  # mail-egress
-            ipaddress.ip_network("10.251.0.0/24"),  # payment-hook
+            ipaddress.ip_network("10.253.0.0/24"),  # payment-hook
+            ipaddress.ip_network("10.251.0.0/24"),  # pris sur la VM par ml-detector (conflit du 17/11)
         ]
 
         assert not any(subnet.overlaps(other) for other in forbidden)
