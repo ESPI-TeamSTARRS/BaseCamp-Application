@@ -24,7 +24,12 @@ export default function ConfidentialitePage() {
             Compte : adresse courriel et mot de passe (conservé uniquement sous forme chiffrée irréversible).
           </li>
           <li>Commande : nom, adresse de livraison, courriel, contenu et montant de la commande.</li>
-          <li>Paiement : aucune donnée bancaire réelle n&apos;est collectée ; le paiement est simulé.</li>
+          <li>
+            Paiement : paiement de démonstration en mode test Stripe, aucune carte réelle. Les données de
+            carte de test sont saisies sur la page de Stripe et ne sont jamais reçues ni conservées par{' '}
+            {publisher.name}; nous ne gardons que le montant, la référence de la commande et son statut de
+            paiement.
+          </li>
           <li>
             Technique : journaux de fonctionnement (identifiant de corrélation, adresse courriel
             pseudonymisée).
@@ -49,8 +54,8 @@ export default function ConfidentialitePage() {
       <ContentSection title="Destinataires">
         <p>
           Vos données sont réservées à l&apos;équipe de {publisher.name} et à ses sous-traitants strictement
-          nécessaires (hébergement, envoi de courriels). Elles ne sont ni vendues ni cédées à des fins
-          commerciales.
+          nécessaires (hébergement, envoi de courriels, traitement du paiement de démonstration par Stripe en
+          mode test). Elles ne sont ni vendues ni cédées à des fins commerciales.
         </p>
       </ContentSection>
       <ContentSection title="Vos droits">

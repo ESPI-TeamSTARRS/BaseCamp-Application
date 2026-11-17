@@ -1,0 +1,58 @@
+# SURCHARGE D'ACTIVATION de Stripe en production (mode TEST seulement) -- WORK-93.
+#
+# INACTIVE PAR DEFAUT : le deploiement n'utilise que deploy/docker-compose.prod.yml. Ce fichier n'a aucun
+# effet tant que l'operateur ne l'ajoute pas explicitement, ensemble, a la variable d'environnement du
+# service de deploiement sur la VM (COMPOSE_FILE accepte plusieurs fichiers separes par `:`) :
+#
+#   BASECAMP_COMPOSE_FILE=/opt/basecamp/repo/deploy/docker-compose.prod.yml:/opt/basecamp/repo/deploy/docker-compose.prod.stripe.yml
+#
+# Pas a pas, verifications et retour arriere : docs/deployment/runbook.md, « Activer Stripe en production ».
+#
+# Ce que la surcharge change, et rien d'autre :
+#   - payment et payment-worker passent en mode `stripe` (cle de test lue dans un FICHIER monte en secret
+#     Docker, jamais une variable en clair; une cle absente ou qui n'est pas `sk_test_...` empeche le
+#     demarrage, sans afficher la valeur); payment lit aussi le secret de signature du webhook;
+#   - ces deux services (et eux seuls) rejoignent `stripe-egress`, la SEULE sortie vers Internet de la pile
+#     de paiement, pour appeler api.stripe.com; tous les autres reseaux restent internes;
+#   - shop affiche la page de paiement de Stripe (APP_STRIPE_CHECKOUT_ENABLED), ses adresses de retour sont
+#     celles du site.
+# Aucune valeur secrete n'est dans ce fichier : les cles sont dans /opt/basecamp/secrets/payment/.
+
+services:
+  shop:
+    environment:
+      APP_STRIPE_CHECKOUT_ENABLED: "true"
+
+  payment:
+    environment:
+      APP_PAYMENT_PROVIDER: stripe
+      APP_STRIPE_SECRET_KEY_FILE: /run/secrets/payment_stripe_secret_key
+      APP_STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/payment_stripe_webhook_secret
+      APP_STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:?voir deploy/prod.env.example}
+      APP_STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:?voir deploy/prod.env.example}
+    networks: [stripe-egress]
+    secrets: [payment_stripe_secret_key, payment_stripe_webhook_secret]
+
+  # Le remboursement automatique d'une commande expiree (WORK-30) appelle aussi Stripe : meme mode, meme
+  # cle, meme sortie. Le worker ne lit pas le secret du webhook (il ne recoit pas d'evenement Stripe).
+  payment-worker:
+    environment:
+      APP_PAYMENT_PROVIDER: stripe
+      APP_STRIPE_SECRET_KEY_FILE: /run/secrets/payment_stripe_secret_key
+    networks: [stripe-egress]
+    secrets: [payment_stripe_secret_key]
+
+networks:
+  # Sous-reseau FIXE, hors 192.168.0.0/16 (VPN et LAN de l'hote), hors 172.16.0.0/12 (reserve de Docker) et
+  # distinct de mail-egress (10.250.0.0/24) et payment-hook (10.251.0.0/24) : sans lui, Docker choisit un
+  # bloc libre qui peut recouvrir le VPN et couper l'acces a la VM (incident du 22/10).
+  stripe-egress:
+    ipam:
+      config:
+        - subnet: 10.252.0.0/24
+
+secrets:
+  payment_stripe_secret_key:
+    file: ${SECRETS_DIR:-/opt/basecamp/secrets}/payment/stripe-secret-key
+  payment_stripe_webhook_secret:
+    file: ${SECRETS_DIR:-/opt/basecamp/secrets}/payment/stripe-webhook-secret

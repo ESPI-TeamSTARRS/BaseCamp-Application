@@ -25,6 +25,14 @@ services:
     networks: [payment-egress]
     secrets: [payment_stripe_secret_key, payment_stripe_webhook_secret]
 
+  # Remboursement automatique d'une commande expiree (WORK-30) : le worker appelle aussi Stripe.
+  payment-worker:
+    environment:
+      APP_PAYMENT_PROVIDER: stripe
+      APP_STRIPE_SECRET_KEY_FILE: /run/secrets/payment_stripe_secret_key
+    networks: [payment-egress]
+    secrets: [payment_stripe_secret_key]
+
 networks:
   payment-egress:
     driver: bridge

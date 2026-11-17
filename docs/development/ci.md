@@ -14,6 +14,8 @@ Workflow : `.github/workflows/ci.yml`, déclenché à chaque push (hors `main`) 
 | `pr-title` (workflow séparé) | le titre de la PR respecte le format Conventional Commits (même script que le hook `commit-msg`); à rendre obligatoire avec `ci-ok` |
 | `ci-ok` | job final, seul check à rendre obligatoire dans la protection de branche |
 
+**Stripe n'est jamais appelé par la CI** (WORK-93) : toutes les piles de la CI restent en paiement simulé et aucune clé Stripe, même de test, n'est un secret du dépôt. Le parcours avec la carte de test se joue à la main (procédure dans [le runbook](../deployment/runbook.md#valider-le-parcours-stripe-de-bout-en-bout-en-mode-test-work-93)).
+
 Le job `stack-e2e` (`e2e.yml`) tourne avec le nom de projet par défaut (`basecamp`) : les tags `basecamp-<service>` posés par les étapes de build correspondent aux images `${COMPOSE_PROJECT_NAME:-basecamp}-<service>` de `docker-compose.yml`.
 
 Chaque job appelle les tâches `poe` ou `npm` du service, jamais un outil en direct. Les permissions du jeton sont réduites au strict nécessaire (`contents: read`).
