@@ -28,10 +28,22 @@ jobs:
       contents: read
     uses: ./.github/workflows/ci.yml
 
-  # Test de bout en bout, en parallele de la CI. Non bloquant tant que la variable de depot E2E_BLOQUANT
-  # n'est pas "true" : un echec reste visible (job rouge) mais la publication continue (voir docs/development/ci.md).
+  # Test de bout en bout, en parallele de la CI. Deux jobs, un seul actif selon la variable de depot
+  # E2E_BLOQUANT (voir docs/development/ci.md) :
+  #   - "true"      : `e2e` tourne et `version` l'ATTEND (une e2e rouge empeche la publication);
+  #   - sinon (defaut) : `e2e` est ignore (donc ne retarde rien) et `e2e-informatif` joue le meme test en
+  #     parallele SANS que `version` l'attende : un echec reste visible (job rouge du run) mais n'empeche pas
+  #     la publication. L'e2e horaire de main (e2e.yml, schedule) continue de signaler ses echecs.
   e2e:
     name: e2e
+    if: ${{ vars.E2E_BLOQUANT == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e.yml
+
+  e2e-informatif:
+    name: e2e-informatif
+    if: ${{ vars.E2E_BLOQUANT != 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/e2e.yml

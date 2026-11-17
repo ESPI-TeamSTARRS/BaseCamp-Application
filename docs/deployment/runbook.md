@@ -71,6 +71,20 @@ L'ancienne pile (projet compose `basecamp-outdoor`, dossier `/home/anto/basecamp
 | Données à restaurer | Sauvegardes dans `/opt/basecamp/state/backups/<date>/<base>.sql.gz` : `gunzip -c … \| docker compose … exec -T <service> psql -U <utilisateur> <base>` après avoir arrêté les services applicatifs. |
 | `l'ancienne pile … tourne encore` | Normal avant la bascule : voir la section dédiée. |
 
+## Plages réseau de la VM
+
+La VM héberge d'autres projets Docker : une plage fixée dans un compose qui chevauche une plage déjà prise **empêche la création du réseau** (« Pool overlaps with other one on this address space ») et fait échouer le déploiement. Le 17/11, `payment-hook` en `10.251.0.0/24` a été refusé parce que `ml-detector` l'utilise. **Toute nouvelle plage** se choisit après avoir listé celles de la VM :
+`docker network inspect $(docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}'` (et `ip route`), puis s'ajoute à ce tableau **dans la même PR**; un test (`scripts/deploy/test_reserved_networks.py`) refuse une plage de compose absente du tableau ou chevauchant une autre.
+
+| Plage | Usage |
+|---|---|
+| `10.250.0.0/24` | `mail-egress` (basecamp) |
+| `10.251.0.0/24` | `ml-detector_default` (autre projet : ne pas utiliser) |
+| `10.252.0.0/24` | `stripe-egress` (basecamp, surcharge Stripe) |
+| `10.253.0.0/24` | `payment-hook` (basecamp) |
+| `192.168.1.0/24` | `n8n_lan` (LAN de l'hôte : ne pas utiliser) |
+| `172.16.0.0/12` | réserve de Docker (ne pas utiliser) |
+
 ## Secrets
 
 - Tout est dans `/opt/basecamp/.env` (droits 600, propriétaire `basecamp`) et `/opt/basecamp/secrets/`. Rien dans le dépôt, rien dans GitHub côté VM.
@@ -116,7 +130,7 @@ Le mode `stripe` n'est **pas activé en production** par ce ticket (le déploiem
 
 ### Webhook Stripe par la passerelle (WORK-87)
 La passerelle route désormais **`POST /api/stripe/webhook`** vers `payment` (et rien d'autre), par un réseau dédié `payment-hook`.
-- **Effet au déploiement** : le réseau `basecamp-prod_payment-hook` est créé et `traefik` et `payment` sont recréés (brève interruption, comme pour tout déploiement). **Sous-réseau fixe `10.251.0.0/24`** (hors VPN, LAN et réserve de Docker). Après un déploiement, vérifier : `docker network inspect basecamp-prod_payment-hook --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'` doit afficher `10.251.0.0/24`, et `ip route | grep 192.168` ne doit montrer que `192.168.1.0/24`.
+- **Effet au déploiement** : le réseau `basecamp-prod_payment-hook` est créé et `traefik` et `payment` sont recréés (brève interruption, comme pour tout déploiement). **Sous-réseau fixe `10.253.0.0/24`** (hors VPN, LAN et réserve de Docker). Après un déploiement, vérifier : `docker network inspect basecamp-prod_payment-hook --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'` doit afficher `10.253.0.0/24`, et `ip route | grep 192.168` ne doit montrer que `192.168.1.0/24`.
 - **Sans secret de webhook sur la VM, la route refuse tout** (400 `Invalid signature.`, motif `webhook_not_configured` dans les journaux) : c'est le comportement voulu tant que le mode `stripe` n'est pas activé. Rien n'est à saisir pour l'instant : le secret de signature (`whsec_…`, fichier `/opt/basecamp/secrets/payment/stripe-webhook-secret`, commande `--webhook` de [Clés Stripe de test sur la VM](#clés-stripe-de-test-sur-la-vm-work-86)) ne sera branché dans le déploiement qu'avec l'activation de Stripe.
 - **Vérifier la route** : `curl -i -X POST https://<domaine>/api/stripe/webhook -d '{}'` doit répondre 400 ; un `GET` répond 405 ; `/api/payment/health` et `/api/stripe/metrics` répondent 404.
 - **Dans le tableau de bord Stripe** (mode test) : l'adresse du point de terminaison est `https://<domaine>/api/stripe/webhook` ; le secret de signature affiché une fois est celui à saisir avec le script, jamais à coller dans un chat.
@@ -138,7 +152,7 @@ Procédure **manuelle** sur la pile de développement (jamais en CI : la CI bloq
 
 ### Activer Stripe en production, pas à pas (WORK-93)
 **Rien de ceci n'est fait par le dépôt** : la production reste en paiement simulé tant que ces étapes ne sont pas jouées à la main, avec Sam. Elles ne concernent que le mode **test** de Stripe (aucune carte réelle : les textes des CGV et de la confidentialité le disent déjà).
-1. **Avant** : le déploiement qui contient WORK-86 à WORK-92 est en service et la vérification de [Webhook Stripe par la passerelle](#webhook-stripe-par-la-passerelle-work-87) est faite (réseau `10.251.0.0/24`, route `400`).
+1. **Avant** : le déploiement qui contient WORK-86 à WORK-92 est en service et la vérification de [Webhook Stripe par la passerelle](#webhook-stripe-par-la-passerelle-work-87) est faite (réseau `10.253.0.0/24`, route `400`).
 2. **Clé et secret sur la VM** : la clé `sk_test_…` est déjà posée ([Clés Stripe de test sur la VM](#clés-stripe-de-test-sur-la-vm-work-86)). Dans le tableau de bord Stripe (mode **test**), créer le point de terminaison `https://<domaine>/api/stripe/webhook` pour les événements `checkout.session.completed`, `payment_intent.payment_failed`, `refund.created`, `refund.updated` et `refund.failed`; son secret `whsec_…` s'affiche une fois : le saisir **sur la VM** avec `sudo -u basecamp env STRIPE_SECRETS_DIR=/opt/basecamp/secrets/payment sh /opt/basecamp/repo/scripts/init-stripe-secrets.sh --webhook` (jamais dans un chat). Vérifier sans afficher : `sudo ls -l /opt/basecamp/secrets/payment/` (deux fichiers, droits 644).
 3. **Adresses de retour** : dans `/opt/basecamp/.env` ajouter `STRIPE_SUCCESS_URL=https://<domaine>/paiement/retour/{order_reference}` et `STRIPE_CANCEL_URL=https://<domaine>/paiement/retour/{order_reference}?etat=annule` (modèle commenté dans `deploy/prod.env.example`; `{order_reference}` s'écrit tel quel, il est remplacé par le numéro de commande).
 4. **Choisir la surcharge** : le dépôt fournit `deploy/docker-compose.prod.stripe.yml`, **non utilisée par défaut** (mode `stripe` pour `payment`, son worker et `shop`, secrets montés en fichiers, et réseau `stripe-egress`, sous-réseau fixe `10.252.0.0/24` : la **seule sortie vers Internet** de la pile de paiement, réservée à `payment` et `payment-worker`). Pour la sélectionner, ajouter au service de déploiement : `sudo systemctl edit basecamp-deploy.service` puis

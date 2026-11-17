@@ -128,7 +128,7 @@ def test_the_production_hook_network_has_a_fixed_subnet_clear_of_the_vpn_and_doc
     network = _compose("prod")["networks"]["payment-hook"]
     subnet = ipaddress.ip_network(network["ipam"]["config"][0]["subnet"])
 
-    assert subnet == ipaddress.ip_network("10.251.0.0/24")
+    assert subnet == ipaddress.ip_network("10.253.0.0/24")
     assert not subnet.overlaps(ipaddress.ip_network("192.168.0.0/16"))
     assert not subnet.overlaps(ipaddress.ip_network("172.16.0.0/12"))
     assert not subnet.overlaps(ipaddress.ip_network("10.250.0.0/24"))  # mail-egress

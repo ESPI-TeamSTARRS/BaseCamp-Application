@@ -44,7 +44,7 @@ services:
 
 networks:
   # Sous-reseau FIXE, hors 192.168.0.0/16 (VPN et LAN de l'hote), hors 172.16.0.0/12 (reserve de Docker) et
-  # distinct de mail-egress (10.250.0.0/24) et payment-hook (10.251.0.0/24) : sans lui, Docker choisit un
+  # distinct de mail-egress (10.250.0.0/24), payment-hook (10.253.0.0/24) et de 10.251.0.0/24 (ml-detector) : sans lui, Docker choisit un
   # bloc libre qui peut recouvrir le VPN et couper l'acces a la VM (incident du 22/10).
   stripe-egress:
     ipam:

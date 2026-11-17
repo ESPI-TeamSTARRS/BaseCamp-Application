@@ -443,11 +443,14 @@ networks:
   # Reseau dedie a la SEULE route /api/stripe/webhook (WORK-87) : traefik et payment, rien d'autre.
   # Interne (aucune sortie), mais sous-reseau FIXE : un reseau cree par Docker sans plage fixe peut
   # recouvrir le VPN ou le LAN de l'hote (incident du 22/10, voir docs/deployment/runbook.md).
+  # 10.251.0.0/24 est PRIS sur la VM par un autre projet (ml-detector) : le premier deploiement l'a refuse
+  # le 17/11 (« Pool overlaps with other one on this address space »). Avant de changer cette plage,
+  # lister les reseaux de la VM : docker network inspect $(docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}'
   payment-hook:
     internal: true
     ipam:
       config:
-        - subnet: 10.251.0.0/24
+        - subnet: 10.253.0.0/24
   payment-data:
     internal: true
   auth-data:
