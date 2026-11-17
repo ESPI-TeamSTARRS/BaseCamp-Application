@@ -73,10 +73,17 @@ class TestStripeWebhookThroughTheGateway:
         ],
     )
     def test_no_other_stripe_path_reaches_payment(self, client: httpx.Client, path: str) -> None:
-        response = client.post(path, content=b"{}")
+        # Le front (Next.js) normalise le slash final par une redirection 308 vers `/api/stripe` : ce n'est
+        # pas `payment`, et la cible répond 404. On suit donc les redirections (le POST est conservé par un
+        # 308) et on exige que la seule redirection admise retire le slash final, puis un 404 final.
+        response = client.post(path, content=b"{}", follow_redirects=True)
 
         assert response.status_code == 404
         assert "Invalid signature" not in response.text
+        for hop in response.history:
+            assert hop.status_code == 308
+            assert httpx.URL(hop.headers["location"]).path == "/api/stripe"
+            assert "Invalid signature" not in hop.text
 
     def test_the_webhook_route_does_not_open_the_rest_of_payment(
         self, client: httpx.Client
